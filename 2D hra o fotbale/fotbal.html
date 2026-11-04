@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fotbal 4 na 4</title>
+<style>
+:root{--bg:#cfd6dc;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14181c}}
+:root[data-theme="dark"]{--bg:#14181c}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;height:100%;background:var(--bg)}
+canvas{display:block;width:100%;height:100%;object-fit:contain}
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script>
+const cv=document.getElementById('c'),g=cv.getContext('2d');
+// rozměry (logické jednotky 1280x720, plátno se škáluje na celou obrazovku)
+const W=1280,H=720,FX0=100,FX1=1180,FY0=155,FY1=680,FW=FX1-FX0,FH=FY1-FY0,CX=640,CY=(FY0+FY1)/2;
+const PR=6.75,BR=6.67,SPD=115,KSPD=75,SHOTV=1.5,KUP=.4,MOVACC=.6,PPOST=.6,POPP=.75,PASST=1.6,BLK=24,FR=1.3,REACH=14,LR=34; // hráč, míč, rychlost hráče/brankáře, tření míče, dosah kopu, poloměr dopadu lobu
+const AUTO_SWITCH=true;                                   // ovládání se přepne na hráče, který získá míč
+const BREAK=15,HALF=[45,45,15,15],BASE=[0,45,90,105];     // herní minuty
+const GSC=[1,.88,.78,.7,.6,.52];   // velikost bran podle délky zápasu (čím delší zápas, tím menší brány)
+const SPMS=[4/3,10/3,20/3,40/3,30,60];                    // reálné sekundy na 1 herní minutu
+const OPT=['1 s = 0,75 min   (zápas 2 min)','3⅓ s = 1 min   (zápas 5 min)','6⅔ s = 1 min   (zápas 10 min)','13⅓ s = 1 min   (zápas 20 min)','30 s = 1 min   (zápas 45 min)','1 min = 1 min   (zápas 90 min)'];
+const LAB=['1. poločas','2. poločas','Prodloužení – 1. část','Prodloužení – 2. část'];
+let GD,GM,GB,gBase=1;const setGoal=k=>{GD=66*k*gBase;GM=72*k*gBase;GB=96*k*gBase};setGoal(1);
+const T=[{name:'Tým 1',col:'#ff8a1f'},{name:'Tým 2',col:'#a24ba3'}];
+const KS=[ // [0] levá část klávesnice, [1] pravá část (klávesy podle fyzické pozice)
+{mv:['KeyI','KeyK','KeyJ','KeyL'],prev:'KeyQ',next:'KeyE',pass:['Digit1','Digit2','Digit3','Digit4'],shoot:'Space',lob:['Tab'],pause:'Escape'},
+{mv:['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'],prev:'Numpad5',next:'Numpad6',pass:['Numpad1','Numpad2','Numpad3','Numpad4'],shoot:'Numpad0',lob:['Enter','NumpadEnter'],pause:'Pause'}];
+const FORM=[[.2,.5],[.25,.25],[.25,.75],[.395,.5]];      // hráč 1 = brankář
+const P=[],act=[3,3],kLock=[false,false],isAI=[false,false],atkT=[0,0],S=[0,0],K={},B={x:CX,y:CY,vx:0,vy:0,own:null,air:null,last:0};
+for(let t=0;t<2;t++)FORM.forEach((f,n)=>P.push({t,n,x:0,y:0,vx:0,vy:0,r:n?PR:11,on:true,cd:0,ax:1,ay:0,hold:0}));
+let state='mode',sel=1,setupT=0,rs=null,mode=1,hTeam=0,swapOpt=true,swapOn=true,over=false,lastP=null,kk=0,mustPass=null,SPM=10/3,phase=0,gmin=0,brk=0,swapped=false,et=false,gt=0,scorer=0,duelT=0,msg='',spr=null,pen=null;
+const sd=t=>swapped?1-t:t,pl=(t,n)=>P[t*4+n],cur=t=>isAI[t]?null:pl(t,act[t]),dirOf=t=>sd(t)?-1:1;
+const IN=[[0,0,0,0],[0,0,0,0]],STC=['play','pause','goal','out','break','pen','end'];   // IN[tým] = [nahoru,dolů,doleva,doprava]
+const net={role:'',room:undefined,gr:null,code:'',me:'',slot:['',''],want:[0,0],order:[],seen:{},seq:0,Q:[],lastQ:-1,lastPub:0,lastIn:'',q:[],qs:0,miss:0,err:'',cfg:{sel:1,swp:1}}; // sd: tým↔strana hřiště
+
+function reset(kt=kk){
+ for(const p of P){const f=FORM[p.n],s=sd(p.t);p.x=FX0+(s?1-f[0]:f[0])*FW;p.y=FY0+(s?1-f[1]:f[1])*FH;p.vx=p.vy=0;p.cd=0;p.ax=s?-1:1;p.ay=0}
+ B.x=CX;B.y=CY;B.vx=B.vy=0;B.own=null;B.air=null;duelT=0;setupT=0;rs=null;over=false;mustPass=null;atkT[0]=atkT[1]=0;for(let t=0;t<2;t++)act[t]=kLock[t]?0:et?1:3;kickoff(kt)}
+function kickoff(kt){   // rozehrávka ze středu: kt = tým, který rozehrává
+ const d=dirOf(kt),s=sd(kt),fp=[3,1,2].map(n=>pl(kt,n)).filter(p=>p.on),tk=fp[0];
+ tk.x=CX-d*(tk.r+BR-1);tk.y=CY;   // hráč 4 na středu s míčem
+ fp.slice(1).forEach(p=>{p.x=CX-d*70;p.y=CY+(p.n===1?-1:1)*(s?-1:1)*FH/4});   // hráči 2 a 3 kousek za ním v polovině úsečky střed – autóvá čára
+ tk.hold=0;mustPass=tk;B.own=tk;B.last=kt;B.x=CX;B.y=CY;act[kt]=kLock[kt]?0:tk.n;duelT=1.5;rs={p:tk,x:tk.x,y:tk.y,t:4}}
+reset();
+
+// ---------- míč: držení, kopy ----------
+function capture(p){rs=null;B.tgt=null;lastP=null;mustPass=null;const mine=B.last===p.t;B.own=p;B.last=p.t;B.vx=B.vy=0;B.air=null;p.hold=p.n?0:1;if(AUTO_SWITCH&&!kLock[p.t]&&(p.n||mine))act[p.t]=p.n}
+function blockLob(p,ux,uy){   // lob těsně před protivníkem se nepovede: 50 % míč u blokuícího, 50 % náhodný odraz
+ let b=null,bd=1e9;
+ for(const q of P){if(!q.on||q.t===p.t)continue;const dx=q.x-p.x,dy=q.y-p.y,d=Math.hypot(dx,dy);
+  if(d>0&&d<p.r+q.r+14&&(dx*ux+dy*uy)/d>.5&&d<bd){bd=d;b=q}}
+ if(!b)return false;
+ if(Math.random()<.5)capture(b);
+ else{const a=Math.random()*6.283;B.vx=Math.cos(a)*320;B.vy=Math.sin(a)*320;b.cd=.4}
+ return true}
+function kick(p,tx,ty,end,lob,sm=1,ts=1){
+ const dx=tx-p.x,dy=ty-p.y,d=Math.hypot(dx,dy)||1,ux=dx/d,uy=dy/d,s=p.r+BR+2;let v0=Math.min(1400*sm,(FR*d+end)*sm);if(ts>1){const tn=Math.log(v0/Math.max(50,v0-FR*d))/FR*ts;v0=FR*d/(1-Math.exp(-FR*tn))}
+ B.own=null;rs=null;B.tgt=null;lastP=null;mustPass=null;B.last=p.t;p.cd=.4;B.x=p.x+ux*s;B.y=p.y+uy*s;
+ if(lob&&blockLob(p,ux,uy)){}else if(lob){B.vx=B.vy=0;B.air={sx:B.x,sy:B.y,tx,ty,T:2*Math.log(v0/Math.max(50,v0-FR*d))/FR,t:0}}   // lob letí dvakrát déle než míč po zemi
+ else{B.vx=ux*v0;B.vy=uy*v0}}
+const canKick=p=>setupT<=0&&(B.own===p||(!B.own&&!B.air&&Math.hypot(B.x-p.x,B.y-p.y)<p.r+BR+REACH));
+function predict(p,q,lob,ts){   // nahrávka: míří tam, kam přijímající doběhne, až míč dorazí
+ const sp=q.n?AISPD:KSPD,gx=q.gx===undefined?q.x:q.gx,gy=q.gy===undefined?q.y:q.gy,rx=gx-q.x,ry=gy-q.y,rl=Math.hypot(rx,ry)||1;
+ let tx=q.x,ty=q.y;
+ for(let i=0;i<4;i++){const d=Math.hypot(tx-p.x,ty-p.y),v0=Math.min(1400,FR*d+300),tt=Math.log(v0/Math.max(50,v0-FR*d))/FR*(lob?2:1)*ts,mv=Math.min(rl,sp*tt);tx=q.x+rx/rl*mv;ty=q.y+ry/rl*mv}
+ return[Math.max(FX0+15,Math.min(FX1-15,tx)),Math.max(FY0+15,Math.min(FY1-15,ty))]}
+function passTo(p,q,lob){let[tx,ty]=predict(p,q,lob,PASST);if(mustPass===p)tx=sd(p.t)?Math.max(tx,CX+10):Math.min(tx,CX-10);kick(p,tx,ty,300,lob,1,PASST);B.tgt=lob?null:q;lastP={t:p.t,n:q.n,at:performance.now(),lob,q}}
+function boost(){   // dvojité stisknutí čísla: přihrávka letí stejně rychle jako dřív
+ const L=lastP;lastP=null;
+ if(L.lob){if(B.air){B.air.T/=PASST;B.air.t/=PASST}return}
+ const[tx,ty]=predict(B,L.q,false,1),dx=tx-B.x,dy=ty-B.y,d=Math.hypot(dx,dy);
+ if(d>8){const v0=Math.min(1400,FR*d+300);B.vx=dx/d*v0;B.vy=dy/d*v0}}
+function pass(t,n,lob){const p=cur(t),q=pl(t,n);if(p===q||!q.on||!canKick(p))return;passTo(p,q,lob)}
+function shoot(t,lob){const p=cur(t);if(!canKick(p)||mustPass===p)return;
+ const d=dirOf(t),gx=d>0?FX1:FX0;
+ let ty=aimY(1-t,gx);                            // uprostřed větší šance
+ if(Math.random()<1/3)ty=CY+(Math.random()<.5?-1:1)*(GB+20+Math.random()*90);  // třetina střel mimo bránu
+ if(Math.hypot(p.vx,p.vy)>20&&Math.abs(ty-CY)>GB&&Math.random()<MOVACC)ty=aimY(1-t,gx);   // střelec v pohybu je přesnější
+ if(lob){const dep=GD*(.5+Math.random()*.15);kick(p,gx-d*dep,ty,450,true,SHOTV);if(B.air)B.air.roll=[d*(FR*dep+260)*SHOTV,0]}else kick(p,gx,ty,450,false,SHOTV)}                                          // lob dopadne před bránu (půl hloubky sítě nebo o něco blíž) a dokutálí se přes čáru
+function sw(t,d){let n=act[t];do n=(n+d+4)%4;while(!pl(t,n).on);act[t]=n}  // přepíná i na brankáře (1)
+function wpick(c){let w=c.reduce((s,p)=>s+(p.n?1:3),0)*Math.random();for(const p of c){w-=p.n?1:3;if(w<0)return p}return c[0]}   // brankář má při dopadu míče třikrát větší šanci
+function land(a){B.air=null;const c=P.filter(p=>p.on&&Math.hypot(p.x-B.x,p.y-B.y)<LR);
+ if(c.length)capture(wpick(c));                              // rovnocenná šance všech na místě dopadu
+ else if(a.roll){B.vx=a.roll[0];B.vy=a.roll[1]}else{B.vx=(a.tx-a.sx)/a.T*.25;B.vy=(a.ty-a.sy)/a.T*.25}}
+function duel(o,q){const r=Math.random();duelT=.9;
+ if(r<.4){const s=o.r+q.r+4,l=Math.hypot(o.ax,o.ay)||1;o.x=q.x+o.ax/l*s;o.y=q.y+o.ay/l*s}                                  // klička
+ else if(r<.8){const dx=q.x-o.x,dy=q.y-o.y,l=Math.hypot(dx,dy)||1;o.cd=.9;capture(q);q.ax=dx/l;q.ay=dy/l}                   // obránce bere míč
+ else{const a=Math.random()*6.283;B.own=null;B.vx=Math.cos(a)*320;B.vy=Math.sin(a)*320;o.cd=q.cd=.5}}                       // náhodný odraz
+const AISPD=95,nearest=(t,x,y,ai)=>{let b=null,bd=1e9;for(const q of P)if(q.t===t&&q.on&&q.n&&!(ai&&cur(t)===q)){const d=Math.hypot(q.x-x,q.y-y);if(d<bd){bd=d;b=q}}return b};
+function aiPlayer(p,dt){                       // AI hráče, kterého zrovna neovládá člověk: brání a nabíhá
+ const t=p.t,rk=risk(t),d=dirOf(t),s=sd(t),f=FORM[p.n],o=B.own,hx=FX0+(s?1-f[0]:f[0])*FW,hy=FY0+(s?1-f[1]:f[1])*FH,
+  bx=B.air?B.air.tx:B.x,by=B.air?B.air.ty:B.y;
+ let tx=hx,ty=hy,chase=false;
+ if(!o){if(nearest(t,bx,by)===p){tx=bx;ty=by;chase=true}else{tx=hx+(bx-hx)*.25;ty=hy+(by-hy)*.25}}   // volný/vzdušný míč: jde pro něj nejbližší
+ else if(o===p){p.hold+=setupT>0?0:dt;const gx=d>0?FX1:FX0,gd=Math.abs(gx-p.x);   // AI hráč s míčem: střílí, nahrává, vede míč k bráně
+  let od=1e9;for(const e of P)if(e.on&&e.t!==t)od=Math.min(od,Math.hypot(e.x-p.x,e.y-p.y));
+  if(p.hold>.5&&gd<320+200*rk&&mustPass!==p&&Math.random()<dt*(2+3*rk)){aiShoot(p);return}
+  if(p.hold>.5&&(od<70||mustPass===p)){let q=null,qo=0;for(const e of P)if(e.on&&e.t===t&&e!==p&&e.n){let m=1e9;for(const f2 of P)if(f2.on&&f2.t!==t)m=Math.min(m,Math.hypot(f2.x-e.x,f2.y-e.y));if(m>qo){qo=m;q=e}}
+   if(q){passTo(p,q,false);return}}
+  tx=setupT>0||mustPass===p?p.x:gx-d*150;ty=setupT>0||mustPass===p?p.y:CY+(p.y-CY)*.6;chase=true}
+ else if(o.t===t){tx=d>0?Math.max(hx+FW*(.34+.12*rk),o.x+90+50*rk):Math.min(hx-FW*(.34+.12*rk),o.x-90-50*rk);ty=hy+(CY-hy)*.35+(o.y-hy)*.2;                                                    // náš míč: nabíhá dopředu a hledá volné místo
+  let od=1e9,oq=null;for(const e of P)if(e.on&&e.t!==t){const k=Math.hypot(e.x-tx,e.y-ty);if(k<od){od=k;oq=e}}
+  if(oq&&od<90){tx+=(tx-oq.x)/(od||1)*(90-od);ty+=(ty-oq.y)/(od||1)*(90-od)}}
+ else if(o.n&&setupT<=0&&dirOf(o.t)*(o.x-CX)>0&&nearest(t,o.x,o.y)===p){const gx=d>0?FX0:FX1,vx=gx-o.x,vy=CY-o.y,vl=Math.hypot(vx,vy)||1;tx=o.x+vx/vl*BLK;ty=o.y+vy/vl*BLK;chase=true}   // nosič na útočné polovině: jeden obránce mu chodí těsně před ním a blokuje střely
+ else if(o.n&&setupT<=0&&nearest(t,o.x,o.y)===p){tx=o.x;ty=o.y;chase=true}                                        // soupeřův míč: nejbližší napadá nosiče
+ else{const gx=d>0?FX0:FX1;tx=gx+(o.x-gx)*(.45+.35*rk);ty=CY+(o.y-CY)*.5+(p.n-2)*60}                     // ostatní zavírají prostor před brankou
+ if(!chase)tx=Math.max(FX0+GD+30,Math.min(FX1-GD-30,tx));
+ p.gx=tx;p.gy=ty;const dx=tx-p.x,dy=ty-p.y,l=Math.hypot(dx,dy),m=Math.min(1,l/12);
+ p.vx=l?dx/l*AISPD*m*(B.own===p?.8:1):0;p.vy=l?dy/l*AISPD*m*(B.own===p?.8:1):0;if(l>6){p.ax=dx/l;p.ay=dy/l}}
+function risk(t){   // čím víc tým prohrává a čím méně zbývá času, tím víc riskuje (0 až 1)
+ const df=S[1-t]-S[t];if(df<=0)return 0;
+ const tot=phase>=2?120:90,el=BASE[phase]+gmin;
+ return Math.min(1,df/2)*Math.max(0,Math.min(1,(el/tot-.25)/.75))}
+function aimY(df,gx){   // kam míří střela: podle polohy brankáře soupeře
+ const kp=pl(df,0),w=GB-12,ky=kp.y-CY,kn=Math.min(1,Math.abs(ky)/(GB*.7)),sg=ky<0?-1:1,r=Math.random;
+ let y=(r()+r()-1)*w;   // základ: náhodně, uprostřed větší šance
+ if(kp.on&&Math.abs(kp.x-gx)<160){
+  if(r()<PPOST*(1-kn))y=(r()<.5?-1:1)*w*(.6+.4*r());   // brankář uprostřed: častěji k tyči
+  else if(r()<POPP*kn)y=-sg*w*(.3+.7*r())}             // brankář na kraji: spíš na druhou stranu
+ return CY+y}
+function aiShoot(p){const d=dirOf(p.t),gx=d>0?FX1:FX0;let ty=aimY(1-p.t,gx);
+ if(Math.random()<1/3)ty=CY+(Math.random()<.5?-1:1)*(GB+20+Math.random()*90);if(Math.hypot(p.vx,p.vy)>20&&Math.abs(ty-CY)>GB&&Math.random()<MOVACC)ty=aimY(1-p.t,gx);kick(p,gx,ty,450,false,SHOTV)}
+function aiKeeper(p,dt){
+ if(B.own===p){p.vx=p.vy=0;p.ax=dirOf(p.t);p.ay=0;p.hold-=dt;
+  if(p.hold<=0){const c=P.filter(q=>q.t===p.t&&q.n&&q.on),q=c[Math.random()*c.length|0];passTo(p,q,false)}return}
+ const d=dirOf(p.t),lx=d>0?FX0+45:FX1-45;
+ const gx=d>0?FX0:FX1,gdx=B.x-gx,gdy=B.y-CY,gl=Math.hypot(gdx,gdy)||1,k=Math.min(gl,45+40*Math.max(0,1-gl/500));
+ let tx=B.air?p.x:d>0?Math.max(gx+16,gx+gdx/gl*k):Math.min(gx-16,gx+gdx/gl*k),ty=B.air?p.y:CY+gdy/gl*k;
+ const prog=Math.max(0,Math.min(1,d*(B.x-CX)/(FW/2)));
+ if(prog>0){tx=gx+d*FW*(.12+(KUP+.1*risk(p.t)-.12)*prog);ty=CY+(B.y-CY)*.3;if(atkT[p.t]>=3-1.5*risk(p.t))tx=gx+d*FW*.46}   // míč na polovině soupeře: brankář se vysune a pomáhá útoku                          // brankář stojí na úsečce míč – střed brankové čáry
+ if(!B.own&&!B.air&&(Math.abs(B.x-lx)<190||prog>0&&Math.hypot(B.x-p.x,B.y-p.y)<150)&&Math.hypot(B.vx,B.vy)<200){tx=B.x;ty=B.y} // pomalý míč před bránou si vyjde sebrat
+ p.gx=tx;p.gy=ty;const dx=tx-p.x,dy=ty-p.y,l=Math.hypot(dx,dy),m=Math.min(1,l/8);
+ const sp=KSPD*(prog<=0&&Math.abs(p.x-gx)>150?1.7:1);p.vx=l?dx/l*sp*m:0;p.vy=l?dy/l*sp*m:0}
+
+// ---------- aut ----------
+function restart(t,x,y,m){
+ let b=null,bd=1e9;for(const p of P)if(p.t===t&&p.on&&p.n){const d=Math.hypot(p.x-x,p.y-y);if(d<bd){bd=d;b=p}}
+ b.x=Math.max(FX0+PR,Math.min(FX1-PR,x));b.y=Math.max(FY0+PR,Math.min(FY1-PR,y));
+ const dx=CX-b.x,dy=CY-b.y,l=Math.hypot(dx,dy)||1;b.ax=dx/l;b.ay=dy/l;
+ B.own=b;B.air=null;B.vx=B.vy=0;B.last=t;b.cd=0;b.hold=0;if(!kLock[t])act[t]=b.n;duelT=m==='ROH'?6:1.2;setupT=m==='ROH'?5:0;rs={p:b,x:b.x,y:b.y,t:4};msg=m;state='out';gt=1}
+function out(){
+ const o=1-B.last;
+ if(B.y<FY0-BR||B.y>FY1+BR)return restart(o,B.x,B.y<CY?FY0:FY1,'AUT');
+ const s=B.x<CX?0:1,d=sd(s);                                                    // d = tým, který brání tuto stranu
+ if(B.last===d)restart(1-d,s?FX1:FX0,B.y<CY?FY0:FY1,'ROH');
+ else{const k=pl(d,0);capture(k);k.hold=1.2;rs={p:k,x:k.x,y:k.y,t:4};msg='VÝKOP';state='out';gt=1}}
+
+// ---------- fyzika a pravidla ----------
+function sub(dt,live){
+ if(!live){if(!B.own&&!B.air){B.x+=B.vx*dt;B.y+=B.vy*dt;const f=Math.exp(-FR*dt);B.vx*=f;B.vy*=f;if(B.x<FX0-40){B.x=FX0-40;B.vx=0}else if(B.x>FX1+40){B.x=FX1+40;B.vx=0}}return}
+ duelT-=dt;for(let t=0;t<2;t++){const ours=B.own?B.own.t===t:B.last===t;atkT[t]=ours&&dirOf(t)*(B.x-CX)>0?atkT[t]+dt:0}
+ for(const p of P){if(!p.on)continue;p.cd=Math.max(0,p.cd-dt);
+  if(cur(p.t)!==p&&p.n===0)aiKeeper(p,dt);
+  else if(cur(p.t)!==p)aiPlayer(p,dt);
+  else{let dx=0,dy=0;
+   if(cur(p.t)===p&&!((setupT>0||mustPass===p)&&B.own===p)){const I=IN[p.t];dx=I[3]-I[2];dy=I[1]-I[0]}
+   const l=Math.hypot(dx,dy);const sv=SPD*(B.own===p?.8:1);p.vx=l?dx/l*sv:0;p.vy=l?dy/l*sv:0;if(l){p.ax=dx/l;p.ay=dy/l}}
+  p.x=Math.max(p.r,Math.min(W-p.r,p.x+p.vx*dt));p.y=Math.max(120+p.r,Math.min(H-p.r,p.y+p.vy*dt))}
+ for(let i=0;i<8;i++)for(let j=i+1;j<8;j++){const a=P[i],b=P[j];if(!a.on||!b.on)continue;
+  const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy),m=a.r+b.r;
+  if(d>0&&d<m){
+   if(a.t!==b.t&&duelT<=0&&(B.own===a||B.own===b)){duel(B.own,B.own===a?b:a);continue}
+   const o=(m-d)/2/d;a.x-=dx*o;a.y-=dy*o;b.x+=dx*o;b.y+=dy*o}}
+ if(rs){const tp=rs.p;rs.t-=setupT>0?0:dt;   // rozehrávka: soupeři nesmějí do kruhu 4× poloměr kolem rozehrávajícího
+  if(B.own!==tp||rs.t<=0||Math.hypot(tp.x-rs.x,tp.y-rs.y)>25)rs=null;
+  else for(const q of P){if(!q.on||q.t===tp.t)continue;const dx=q.x-tp.x,dy=q.y-tp.y,d=Math.hypot(dx,dy)||1,m=4*tp.r+q.r;
+   if(d<m){q.x=tp.x+dx/d*m;q.y=tp.y+dy/d*m}}}
+ if(rs&&mustPass===rs.p)for(const q of P){if(!q.on)continue;if(sd(q.t))q.x=Math.max(q.x,CX+q.r);else q.x=Math.min(q.x,CX-q.r)}   // rozehrávka ze středu: všichni na své polovině
+ if(B.air){const a=B.air,u=Math.min(1,(a.t+=dt)/a.T);B.x=a.sx+(a.tx-a.sx)*u;B.y=a.sy+(a.ty-a.sy)*u;if(u>=1)land(a)}
+ else if(B.own){const p=B.own,s=p.r+BR-1,l=Math.hypot(p.ax,p.ay)||1;B.x=p.x+p.ax/l*s;B.y=p.y+p.ay/l*s}   // hráč vede míč před sebou
+ else{B.x+=B.vx*dt;B.y+=B.vy*dt;const f=Math.exp(-FR*dt);B.vx*=f;B.vy*=f;
+  let c=null,bd=1e9;for(const p of P){if(!p.on||p.cd>0)continue;const d=Math.hypot(B.x-p.x,B.y-p.y);if(d<p.r+BR+(p===B.tgt?14:0)&&d<bd){bd=d;c=p}}
+  if(c)capture(c)}                                                               // dotek = míč pod kontrolou (žádný odraz)
+ if(B.air)return;
+ for(let s=0;s<2;s++){const d=s?FX1-B.x:B.x-FX0;                                  // míč přešel brankovou čáru mezi tyčemi = gól
+  if(d<0&&Math.abs(B.y-CY)<GB){const w=1-sd(s);S[w]++;scorer=w;state='goal';gt=2;B.vx*=.4;B.vy*=.4;P.forEach(p=>p.vx=p.vy=0);return true}}
+ if((B.x<FX0-BR||B.x>FX1+BR||B.y<FY0-BR||B.y>FY1+BR)){out();return true}}
+function update(dt,live){const n=Math.max(1,Math.ceil(dt/.004));for(let i=0;i<n;i++)if(sub(dt/n,live))break}
+
+// ---------- průběh zápasu ----------
+function go(){if(mode===1)state='setup';else startMatch()}
+function startMatch(){kk=Math.random()<.5?0:1;isAI[0]=mode===3?!net.slot[0]:mode===1&&hTeam!==0;isAI[1]=mode===3?!net.slot[1]:mode===1&&hTeam!==1;swapOn=mode===2||swapOpt;kLock[0]=kLock[1]=false;SPM=SPMS[sel];gBase=GSC[sel];S[0]=S[1]=0;phase=0;gmin=0;swapped=false;et=false;pen=null;setGoal(1);P.forEach(p=>p.on=true);reset();state='play'}
+function endPeriod(){const tie=S[0]===S[1];
+ if(phase===1||phase===3){if(!tie){state='end';return}if(phase===3){startPen();return}}
+ state='break';brk=0}
+function nextPeriod(){phase++;kk=phase===2?(Math.random()<.5?0:1):1-kk;if(swapOn)swapped=!swapped;gmin=0;
+ if(phase===2){et=true;setGoal(1.2);P.forEach(p=>p.on=p.n!==3)}                    // prodloužení: bez hráče 4, brány +20 %
+ reset();state='play'}
+function startPen(){state='pen';pen={turn:0,s:[0,0],n:[0,0],a:null,b:null,t:0,res:0,w:-1}}
+function penTick(dt){if(pen.t<=0){if(isAI[pen.turn]&&pen.a===null)pen.a=Math.random()*3|0;if(isAI[1-pen.turn]&&pen.b===null)pen.b=Math.random()*3|0;if(pen.a!==null&&pen.b!==null){pen.t=2.4;pen.res=pen.a===pen.b?0:1}return}pen.t-=dt;if(pen.t>0)return;
+ pen.s[pen.turn]+=pen.res;pen.n[pen.turn]++;pen.a=pen.b=null;pen.turn=1-pen.turn;
+ const[s0,s1]=pen.s,[n0,n1]=pen.n,r0=Math.max(0,5-n0),r1=Math.max(0,5-n1);
+ if(n0>=5&&n1>=5){if(n0===n1&&s0!==s1)pen.w=s0>s1?0:1}
+ else if(s0>s1+r1)pen.w=0;else if(s1>s0+r0)pen.w=1;
+ if(pen.w>=0)state='end'}
+
+// ---------- ovládání zařízení a online hra (capability room) ----------
+function lk(t){   // části klávesnice (0 levá, 1 pravá) tohoto zařízení, které ovládají tým t
+ if(isAI[t])return[];
+ if(mode<3)return[sd(t)];
+ if(!net.me||net.slot[t]!==net.me)return[];
+ return net.slot[1-t]===net.me?[t]:[0,1]}
+function syncIn(){for(let t=0;t<2;t++){if(mode===3&&net.slot[t]&&net.slot[t]!==net.me)continue;const I=IN[t];I[0]=I[1]=I[2]=I[3]=0;for(const ks of lk(t)){const m=KS[ks].mv;for(let i=0;i<4;i++)I[i]|=K[m[i]]|0}}}
+function doAct(t,a,lob){   // akce hráče: n/p přepnutí hráče, s střela, d0–d3 číslo hráče
+ if(isAI[t])return;
+ if(state==='pen'){if(a[0]==='d')penPick(t,+a[1]);return}
+ if(state!=='play')return;
+ if(a==='n'){sw(t,1);kLock[t]=!act[t]}
+ else if(a==='p'){sw(t,-1);kLock[t]=!act[t]}
+ else if(a==='s')shoot(t,lob);
+ else{const i=+a[1];
+  if(lastP&&lastP.t===t&&lastP.n===i&&!B.own&&performance.now()-lastP.at<350&&(lastP.lob?B.air:!B.air))boost();
+  else if(setupT>0||B.own!==cur(t)){if(pl(t,i).on){act[t]=i;kLock[t]=!i}}
+  else pass(t,i,lob)}}
+function penPick(t,i){if(pen.t>0||i<0||i>2)return;
+ if(t===pen.turn){if(pen.a===null)pen.a=i}else if(pen.b===null)pen.b=i;
+ if(pen.a!==null&&pen.b!==null){pen.t=2.4;pen.res=pen.a===pen.b?0:1}}   // stejná část = chyceno, jinak gól
+function sendAct(t,a,l){if(net.role==='client')netQ(t,a,l);else doAct(t,a,l)}
+function keysAct(c){for(let t=0;t<2;t++)for(const ks of lk(t)){const k=KS[ks];let a=null;
+ if(c===k.next)a='n';else if(c===k.prev)a='p';else if(c===k.shoot)a='s';else{const i=k.pass.indexOf(c);if(i>=0)a='d'+i}
+ if(a)sendAct(t,a,k.lob.some(l=>K[l])?1:0)}}
+function pr(r,p){try{const x=r.presence(p);if(x&&x.catch)x.catch(()=>{})}catch(e){}}
+function myPeer(){const m=net.gr&&net.gr.peers().find(p=>p.isMe&&p.sameTab);return m?m.peer:''}
+function setWant(t){net.want[t]^=1;if(net.gr)pr(net.gr,{w:net.want.slice()})}
+function netOpen(){state='net';net.err=''}
+function netHost(){let c='';for(let i=0;i<4;i++)c+='ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.random()*24|0];joinGame(c,'host')}
+async function joinGame(code,role){
+ if(!net.room||!/^[A-Z]{4}$/.test(code)){net.err='Online hra není dostupná';return}
+ try{net.gr=await net.room.join('fb-'+code.toLowerCase())}catch(e){net.err='Připojení ke hře se nezdařilo';return}
+ Object.assign(net,{role,code,me:'',slot:['',''],want:[0,0],order:[],seen:{},Q:[],lastQ:-1,q:[],qs:0,miss:0,lastIn:'',err:''});
+ mode=3;isAI[0]=isAI[1]=false;state='lobby';
+ if(role==='host'){pr(net.room,{g:code});pr(net.gr,{h:1,w:[0,0],ss:['',''],m:0})}else pr(net.gr,{w:[0,0]})}
+function netLeave(m){const gr=net.gr;net.gr=null;if(gr)gr.leave().catch(()=>{});if(net.role==='host'&&net.room)pr(net.room,{g:null});
+ net.role='';net.slot=['',''];net.want=[0,0];net.Q=[];net.err=m||'';mode=1;isAI[0]=isAI[1]=false;state='mode'}
+function netStart(){if(net.role==='host'&&net.me){mode=3;startMatch()}}
+function endGo(){if(mode===3){if(net.role==='host')state='lobby'}else state='mode'}
+function netQ(t,a,l){net.q.push([++net.qs,t,a,l]);if(net.q.length>10)net.q.shift();pushIn()}
+function pushIn(){if(!net.gr)return;const k=[0,0];
+ for(let t=0;t<2;t++){let b=0;for(const ks of lk(t)){const m=KS[ks].mv;for(let i=0;i<4;i++)b|=(K[m[i]]|0)<<i}k[t]=b}
+ const o={k,q:net.q},j=JSON.stringify(o);if(j!==net.lastIn){net.lastIn=j;pr(net.gr,{inp:o})}}
+function hostPoll(){const gr=net.gr;if(!gr)return;net.me=myPeer();if(!net.me)return;
+ const ps=gr.peers().filter(p=>!p.isMe&&p.kind==='viewer'),labs=ps.map(p=>p.peer);
+ for(const l of labs)if(!net.order.includes(l))net.order.push(l);
+ net.order=net.order.filter(l=>labs.includes(l));
+ if(state==='lobby'){   // přidělení týmů: nejdřív hostitel, pak v pořadí příchodu
+  for(let t=0;t<2;t++){let o=net.want[t]?net.me:'';
+   if(!o)for(const l of net.order){const w=(ps.find(p=>p.peer===l).presence||{}).w;if(w&&w[t]){o=l;break}}
+   net.slot[t]=o}}
+ else if(mode===3){   // zápas: vstupy a akce vzdálených týmů; odpojený hráč = bot
+  for(let t=0;t<2;t++){const lab=net.slot[t];if(!lab||lab===net.me)continue;
+   const p=ps.find(q=>q.peer===lab);
+   if(!p){net.slot[t]='';isAI[t]=true;continue}
+   const ip=(p.presence||{}).inp;if(!ip)continue;
+   const b=(ip.k&&ip.k[t])|0,I=IN[t];for(let i=0;i<4;i++)I[i]=b>>i&1;
+   for(const e of ip.q||[]){if(!Array.isArray(e)||e[1]!==t||!/^(n|p|s|d[0-3])$/.test(e[2]))continue;
+    const key=lab+t;if(e[0]>(net.seen[key]||0)){net.seen[key]=e[0];doAct(t,e[2],e[3]?1:0)}}}}}
+function snap(){const r1=v=>Math.round(v*10)/10;   // snímek zápasu pro klienty
+ return{q:++net.seq,st:STC.indexOf(state),ph:phase,gm:+gmin.toFixed(3),br:+brk.toFixed(3),ov:over?1:0,sc:[S[0],S[1]],sw:swapped?1:0,so:swapOn?1:0,
+  g:[r1(GD),r1(GM),r1(GB)],p:P.flatMap(p=>[r1(p.x),r1(p.y),p.on?1:0]),
+  b:[r1(B.x),r1(B.y),B.air?+Math.min(1,B.air.t/B.air.T).toFixed(3):-1],
+  ac:[act[0],act[1]],ai:[isAI[0]?1:0,isAI[1]?1:0],rs:rs?[r1(rs.p.x),r1(rs.p.y),rs.p.r]:0,su:+setupT.toFixed(2),mp:mustPass?mustPass.t:-1,ms:msg,sr:scorer,
+  pn:pen?{u:pen.turn,s:pen.s,n:pen.n,a:pen.a===null?-1:pen.t>0?pen.a:9,b:pen.b===null?-1:pen.t>0?pen.b:9,t:+pen.t.toFixed(2),r:pen.res,w:pen.w}:0}}
+function hostPub(now){const gr=net.gr;if(!gr)return;
+ if(state==='lobby'){if(now-net.lastPub>100){net.lastPub=now;pr(gr,{h:1,w:net.want,ss:net.slot,cfg:{sel,swp:swapOpt?1:0},m:0,s:null})}}
+ else if(STC.includes(state)&&now-net.lastPub>50){net.lastPub=now;pr(gr,{h:1,w:net.want,ss:net.slot,m:1,s:snap()})}}
+function applyView(){const Q=net.Q;if(!Q.length)return;   // klient: vykreslí zpožděnou interpolaci mezi snímky hostitele
+ const rt=performance.now()-100;let ia=-1;for(let i=0;i<Q.length;i++)if(Q[i].t<=rt)ia=i;
+ const a=Q[Math.max(0,ia)],b=Q[Math.min(Q.length-1,ia+1)],f=a===b?1:Math.max(0,Math.min(1,(rt-a.t)/(b.t-a.t))),sa=a.s,sb=b.s;
+ state=STC[sb.st]||'play';phase=sb.ph;gmin=sb.gm;brk=sb.br;over=!!sb.ov;S[0]=sb.sc[0];S[1]=sb.sc[1];swapped=!!sb.sw;swapOn=!!sb.so;
+ GD=sb.g[0];GM=sb.g[1];GB=sb.g[2];act[0]=sb.ac[0];act[1]=sb.ac[1];isAI[0]=!!sb.ai[0];isAI[1]=!!sb.ai[1];
+ setupT=sb.su;mustPass=sb.mp>=0?{t:sb.mp}:null;msg=sb.ms;scorer=sb.sr;
+ for(let i=0;i<8;i++){const p=P[i],x0=sa.p[i*3],y0=sa.p[i*3+1],x1=sb.p[i*3],y1=sb.p[i*3+1],j=Math.hypot(x1-x0,y1-y0)>150?1:f;p.x=x0+(x1-x0)*j;p.y=y0+(y1-y0)*j;p.on=!!sb.p[i*3+2]}
+ const bx0=sa.b[0],by0=sa.b[1],bx1=sb.b[0],by1=sb.b[1],jb=Math.hypot(bx1-bx0,by1-by0)>150?1:f;B.x=bx0+(bx1-bx0)*jb;B.y=by0+(by1-by0)*jb;B.air=sb.b[2]>=0?{t:sb.b[2],T:1}:null;
+ rs=sb.rs?{p:{x:sb.rs[0],y:sb.rs[1],r:sb.rs[2]}}:null;
+ pen=sb.pn?{turn:sb.pn.u,s:sb.pn.s,n:sb.pn.n,a:sb.pn.a<0?null:sb.pn.a,b:sb.pn.b<0?null:sb.pn.b,t:sb.pn.t,res:sb.pn.r,w:sb.pn.w}:null}
+function clientTick(){const gr=net.gr;if(!gr)return;
+ net.me=myPeer();
+ const h=gr.peers().find(p=>!p.isMe&&p.presence&&p.presence.h===1);
+ if(!h){if(++net.miss>240)netLeave('Hostitel odešel');return}
+ net.miss=0;const hp=h.presence;
+ if(hp.ss)net.slot=hp.ss;if(hp.cfg)net.cfg=hp.cfg;
+ if(hp.m===1&&hp.s){if(hp.s.q!==net.lastQ){net.lastQ=hp.s.q;net.Q.push({t:performance.now(),s:hp.s});if(net.Q.length>10)net.Q.shift()}applyView();pushIn()}
+ else if(state!=='lobby'){state='lobby';net.Q.length=0;net.lastQ=-1}}
+
+// ---------- kreslení ----------
+function drawGoal(s){
+ const bx=s?FX1:FX0,d=s?-1:1,mx=bx+d*GD,path=()=>{g.beginPath();g.moveTo(bx,CY-GB);g.lineTo(mx,CY-GM);g.lineTo(mx,CY+GM);g.lineTo(bx,CY+GB)};
+ g.save();path();g.closePath();
+ const gr=g.createLinearGradient(mx,0,bx,0);gr.addColorStop(0,'rgba(255,255,255,.2)');gr.addColorStop(1,'rgba(0,0,0,.5)');
+ g.fillStyle=gr;g.fill();g.clip();
+ g.strokeStyle='rgba(255,255,255,.45)';g.lineWidth=1;g.beginPath();
+ for(let i=1;i<8;i++){const u=i/8;g.moveTo(bx,CY-GB+2*GB*u);g.lineTo(mx,CY-GM+2*GM*u)}
+ for(let i=1;i<6;i++){const xx=bx+d*GD*i/6,h=GB+(GM-GB)*i/6;g.moveTo(xx,CY-h);g.lineTo(xx,CY+h)}
+ g.stroke();g.restore();
+ g.strokeStyle='#000';g.lineWidth=3;path();g.stroke();
+ g.lineWidth=2;g.fillStyle='#fff';
+ for(const o of[-GB,GB]){g.beginPath();g.arc(bx,CY+o,5,0,7);g.fill();g.stroke()}}
+function ov(lines,a){g.fillStyle='rgba(0,0,0,'+a+')';g.fillRect(0,120,W,H-120);g.fillStyle='#fff';
+ for(const[s,z,y]of lines){g.font='bold '+z+'px sans-serif';g.fillText(s,CX,y)}}
+function drawPitch(){
+ g.fillStyle='#22b14c';g.fillRect(0,120,W,H-120);
+ g.strokeStyle='#fff';g.lineWidth=6;g.strokeRect(FX0,FY0,FW,FH);                  // autové čáry
+ g.beginPath();g.moveTo(CX,FY0);g.lineTo(CX,FY1);g.stroke();
+ g.fillStyle='#fff';g.beginPath();g.arc(CX,CY,12,0,7);g.fill();
+ drawGoal(0);drawGoal(1);
+ if(rs){g.strokeStyle='rgba(255,255,255,.55)';g.lineWidth=2;g.setLineDash([6,6]);g.beginPath();g.arc(rs.p.x,rs.p.y,4*rs.p.r,0,7);g.stroke();g.setLineDash([])}
+ for(const p of P){if(!p.on)continue;
+  g.fillStyle='rgba(0,0,0,.2)';g.beginPath();g.ellipse(p.x+2,p.y+4,p.r,p.r*.85,0,0,7);g.fill();
+  g.fillStyle=T[p.t].col;g.beginPath();g.arc(p.x,p.y,p.r,0,7);g.fill();
+  if(cur(p.t)===p){g.strokeStyle='#fff';g.lineWidth=2;g.beginPath();g.arc(p.x,p.y,p.r+3,0,7);g.stroke();
+   g.fillStyle='#fff';g.beginPath();g.moveTo(p.x,p.y-p.r-4);g.lineTo(p.x-5,p.y-p.r-11);g.lineTo(p.x+5,p.y-p.r-11);g.fill()}
+  g.fillStyle='#000';g.font='bold 13px sans-serif';g.fillText(p.n+1,p.x-p.r-7,p.y+5)}
+ let h=0,sc=1;if(B.air){const u=Math.min(1,B.air.t/B.air.T);h=200*u*(1-u);sc=1+h/90}   // lob: míč ve vzduchu
+ g.fillStyle='rgba(0,0,0,.25)';g.beginPath();g.ellipse(B.x+2,B.y+3,BR,BR*.8,0,0,7);g.fill();
+ drawBall(B.x,B.y-h,BR*2*sc)}
+function drawBall(x,y,s){if(spr)g.drawImage(spr,x-s/2,y-s/2,s,s);
+ else{g.fillStyle='#fff';g.strokeStyle='#111';g.lineWidth=2;g.beginPath();g.arc(x,y,s/2,0,7);g.fill();g.stroke()}}
+function hud(){
+ T.forEach((t,i)=>{const bx=i?950:60;g.fillStyle=t.col;g.fillRect(bx,22,270,76);g.strokeStyle='#000';g.lineWidth=4;g.strokeRect(bx,22,270,76);
+  g.fillStyle='#000';g.font='bold 40px sans-serif';g.fillText(t.name,bx+135,72)});
+ S.forEach((s,i)=>{const bx=i?655:555;g.fillStyle='#000';g.fillRect(bx,16,70,88);g.fillStyle='#fff';g.font='bold 66px sans-serif';g.fillText(s,bx+35,86)});
+ g.fillStyle='#000';g.fillRect(625,56,30,8)}
+function drawPen(){
+ g.fillStyle='#22b14c';g.fillRect(0,120,W,H-120);
+ const sh=T[pen.turn],kp=T[1-pen.turn],x0=390,y0=240,w=500,h=150,zc=[x0+w/6,x0+w/2,x0+w*5/6];
+ g.fillStyle='rgba(0,0,0,.3)';g.fillRect(x0,y0,w,h);
+ g.strokeStyle='rgba(255,255,255,.3)';g.lineWidth=1;g.beginPath();
+ for(let i=1;i<20;i++){g.moveTo(x0+i*25,y0);g.lineTo(x0+i*25,y0+h)}
+ for(let i=1;i<6;i++){g.moveTo(x0,y0+i*25);g.lineTo(x0+w,y0+i*25)}
+ g.stroke();
+ g.strokeStyle='#fff';g.lineWidth=8;g.beginPath();g.moveTo(x0,y0+h);g.lineTo(x0,y0);g.lineTo(x0+w,y0);g.lineTo(x0+w,y0+h);g.stroke();
+ g.setLineDash([8,8]);g.lineWidth=2;g.beginPath();g.moveTo(x0+w/3,y0);g.lineTo(x0+w/3,y0+h);g.moveTo(x0+w*2/3,y0);g.lineTo(x0+w*2/3,y0+h);g.stroke();g.setLineDash([]);
+ const run=pen.t>0,u=run?1-pen.t/2.4:0,e=Math.min(1,u*1.8),a=run?pen.a:1,k=run?pen.b:1,
+  kx=zc[1]+(zc[k]-zc[1])*e,bx=640+(zc[a]-640)*e,by=560+(y0+h*.55-560)*e;
+ g.fillStyle=kp.col;g.beginPath();g.arc(kx,y0+h-32,26,0,7);g.fill();
+ g.fillStyle='#000';g.font='bold 22px sans-serif';g.fillText('1',kx,y0+h-24);
+ drawBall(bx,by,32);
+ g.fillStyle='#fff';
+ if(run&&u>.5){g.font='bold 72px sans-serif';g.fillText(pen.res?'GÓL!':'CHYCENO!',CX,500)}
+ g.font='bold 30px sans-serif';g.fillText('PENALTY – kope '+sh.name+', chytá '+kp.name,CX,185);
+ g.font='bold 26px sans-serif';g.fillText(T[0].name+'  '+pen.s[0]+' : '+pen.s[1]+'  '+T[1].name+'   (kopy '+pen.n[0]+' / '+pen.n[1]+')',CX,222);
+ const st=v=>v===null?'čeká na volbu…':'✔ zvoleno';
+ g.font='20px sans-serif';
+ g.fillText('Střelec ('+sh.name+', '+(isAI[pen.turn]?'počítač':(mode===3?'online hráč':(sd(pen.turn)?'pravá':'levá')+' část'))+'): '+st(pen.a),CX,620);
+ g.fillText('Brankář ('+kp.name+', '+(isAI[1-pen.turn]?'počítač':(mode===3?'online hráč':(sd(1-pen.turn)?'pravá':'levá')+' část'))+'): '+st(pen.b),CX,648);
+ g.font='18px sans-serif';g.fillText('Volba: 1 = doleva · 2 = doprostřed · 3 = doprava   (levá část: horní řada čísel, pravá část: numerická klávesnice)',CX,685)}
+function drawMenu(){
+ g.fillStyle='rgba(8,24,14,.94)';g.fillRect(0,0,W,H);g.fillStyle='#fff';
+ g.font='bold 56px sans-serif';g.fillText('FOTBAL 4 na 4',CX,78);
+ g.font='22px sans-serif';g.fillText('Vyber rychlost času:  ↑ ↓ + Enter (nebo klikni)',CX,120);
+ OPT.forEach((s,i)=>{const y=145+i*54;g.fillStyle=i===sel?'#ff8a1f':'rgba(255,255,255,.14)';g.fillRect(340,y,600,44);
+  g.fillStyle=i===sel?'#000':'#fff';g.font='bold 24px sans-serif';g.fillText(s,CX,y+30)});
+ g.fillStyle='#cfe8d6';g.font='16px sans-serif';
+ ['Levá část: I J K L pohyb · Q / E přepnutí hráče · 1–4 nahrávka (bez míče výběr hráče) · Mezerník střela · Tab (držet) = lob · Esc pauza',
+  'Pravá část: šipky pohyb · Num 5 / 6 přepnutí hráče · Num 1–4 nahrávka (bez míče výběr hráče) · Num 0 střela · Enter (držet) = lob · Pause pauza',
+  'Hráč 1 je brankář: hraje sám, dokud na něj nepřepneš; pak na něm zůstaneš, dokud nepřepneš jinam. Po poločase se vymění strany i ovládání.',
+  'Přihrávka je pomalejší; dvojité stisknutí čísla hráče = rychlá přihrávka.'
+ ].forEach((s,i)=>g.fillText(s,CX,495+i*26));btn(20,20,120,42,'‹ Zpět',()=>{state='mode'})}
+const btns=[];
+function btn(x,y,w,h,label,fn,on,col,sub){btns.push({x,y,w,h,fn});
+ g.fillStyle=col||'rgba(255,255,255,.16)';g.fillRect(x,y,w,h);
+ g.strokeStyle=on?'#fff':'rgba(255,255,255,.35)';g.lineWidth=on?5:2;g.strokeRect(x,y,w,h);
+ g.fillStyle=col===T[0].col?'#000':'#fff';g.font='bold '+(h>70?36:22)+'px sans-serif';g.fillText(label,x+w/2,y+h*(sub?.48:.66));
+ if(sub){g.font='18px sans-serif';g.fillText(sub,x+w/2,y+h*.8)}}
+function drawMode(){
+  g.fillStyle='rgba(8,24,14,.94)';g.fillRect(0,0,W,H);g.fillStyle='#fff';
+  g.font='bold 64px sans-serif';g.fillText('FOTBAL 4 na 4',CX,150);
+  g.font='24px sans-serif';g.fillText('Vyber režim  (↑ ↓ + Enter, nebo klikni)',CX,205);
+  btn(340,240,600,100,'1 hráč',()=>{mode=1;state='menu'},mode===1,0,'hraješ proti počítači');
+  btn(340,360,600,100,'2 hráči',()=>{mode=2;state='menu'},mode===2,0,'dva lidé na jedné klávesnici');
+  btn(340,480,600,100,'Online',()=>{mode=3;netOpen()},mode===3,0,'hra na více zařízeních (každý tým ovládá jeden člověk)')}
+function drawNet(){
+  g.fillStyle='rgba(8,24,14,.94)';g.fillRect(0,0,W,H);g.fillStyle='#fff';
+  g.font='bold 52px sans-serif';g.fillText('Online hra',CX,90);
+  g.font='20px sans-serif';
+  if(net.room===undefined)g.fillText('Připojování k online službě…',CX,150);
+  else if(!net.room)g.fillText('Online hra je dostupná jen přihlášeným členům, kteří mají tuto stránku otevřenou v claude.ai.',CX,150);
+  else{
+   btn(340,180,600,90,'Vytvořit novou hru',netHost,false,'#22b14c','ostatní se připojí ze seznamu níže');
+   g.fillStyle='#fff';g.font='24px sans-serif';g.fillText('Připojit se k otevřené hře:',CX,335);
+   const gl=net.room.peers().filter(p=>!p.isMe&&p.presence&&/^[A-Z]{4}$/.test(p.presence.g||'')).slice(0,5);
+   if(!gl.length){g.fillStyle='#cfe8d6';g.font='20px sans-serif';g.fillText('Zatím nikdo nehostuje – nech někoho vytvořit hru.',CX,385)}
+   gl.forEach((p,i)=>btn(340,355+i*60,600,50,'Hra '+p.presence.g,()=>joinGame(p.presence.g,'client')))}
+  if(net.err){g.fillStyle='#ffb4a8';g.font='20px sans-serif';g.fillText(net.err,CX,690)}
+  btn(20,20,120,42,'‹ Zpět',()=>{state='mode'})}
+function drawLobby(){
+  g.fillStyle='rgba(8,24,14,.94)';g.fillRect(0,0,W,H);g.fillStyle='#fff';
+  const host=net.role==='host',n=net.gr?net.gr.peers().length:0;
+  g.font='bold 44px sans-serif';g.fillText('Online hra '+net.code,CX,70);
+  g.font='20px sans-serif';g.fillText((host?'Jsi hostitel – ostatní se připojí ze seznamu her. ':'Připojeno k hostiteli. ')+'Zařízení ve hře: '+n,CX,105);
+  [0,1].forEach(t=>{const lab=net.slot[t],who=!lab?'volné – hraje bot':lab===net.me?'hraješ ty':'obsazeno jiným zařízením';
+   btn(t?660:200,130,420,90,t?'Fialové':'Oranžové',()=>{if(!lab||lab===net.me)setWant(t)},!!lab&&lab===net.me,T[t].col,who)});
+  const mine=[0,1].filter(t=>net.slot[t]&&net.slot[t]===net.me).length;
+  g.fillStyle='#cfe8d6';g.font='16px sans-serif';
+  g.fillText(mine===2?'Na tomto zařízení hrají dva hráči: oranžoví levá část klávesnice, fialoví pravá část.':mine===1?'Hraješ na levé NEBO pravé části klávesnice (obě fungují).':'Vyber tým (klik nebo klávesa 1 / 2). Můžeš si vzít oba týmy (dva hráči na jednom zařízení). Bez výběru se jen díváš.',CX,248);
+  if(host){
+   g.fillStyle='#fff';g.font='22px sans-serif';g.fillText('Rychlost času:',CX,290);
+   OPT.forEach((s,i)=>btn(i%2?660:220,305+(i>>1)*48,400,40,s,()=>{sel=i},i===sel));
+   btn(430,462,200,44,'Střídání: zap.',()=>{swapOpt=true},swapOpt);btn(650,462,200,44,'Střídání: vyp.',()=>{swapOpt=false},!swapOpt);
+   btn(340,530,600,90,'Začít zápas',netStart,false,'#22b14c')}
+  else{
+   g.fillStyle='#fff';g.font='24px sans-serif';g.fillText('Čeká se, až hostitel zahájí zápas…',CX,360);
+   const c=net.cfg||{};g.fillStyle='#cfe8d6';g.font='18px sans-serif';g.fillText('Rychlost: '+(OPT[c.sel]||'?')+' · střídání stran: '+(c.swp?'ano':'ne'),CX,400)}
+  btn(20,20,140,42,'‹ Odejít',()=>netLeave())}
+function drawSetup(){
+ g.fillStyle='rgba(8,24,14,.94)';g.fillRect(0,0,W,H);g.fillStyle='#fff';
+ g.font='bold 48px sans-serif';g.fillText('1 hráč',CX,95);
+ g.font='24px sans-serif';g.fillText('Hraješ za:',CX,155);
+ btn(250,175,370,90,'Oranžové',()=>{hTeam=0},hTeam===0,T[0].col);
+ btn(660,175,370,90,'Fialové',()=>{hTeam=1},hTeam===1,T[1].col);
+ g.fillStyle='#fff';g.font='24px sans-serif';g.fillText('Střídání stran po poločase:',CX,325);
+ btn(430,345,200,60,'Zapnuto',()=>{swapOpt=true},swapOpt);
+ btn(650,345,200,60,'Vypnuto',()=>{swapOpt=false},!swapOpt);
+ g.fillStyle='#cfe8d6';g.font='18px sans-serif';
+ g.fillText(hTeam?'Budeš hrát na pravé části klávesnice: šipky, Enter (lob), Num 1–4, Num 0, Num 5 / 6':'Budeš hrát na levé části klávesnice: I J K L, Tab (lob), 1–4, mezerník, Q / E',CX,450);
+ g.fillText(swapOpt?'Po poločase se strany i ovládání přepnou na druhou část klávesnice.':'Strany ani ovládání se po poločase nemění.',CX,478);
+ g.fillText('Soupeř je celý automatický.',CX,506);
+ btn(340,540,600,100,'Začít zápas',startMatch,false,'#22b14c');
+ btn(20,20,120,42,'‹ Zpět',()=>{state='menu'})}
+function draw(){
+ g.setTransform(1.5,0,0,1.5,0,0);g.textAlign='center';btns.length=0;
+ g.fillStyle='#fff';g.fillRect(0,0,W,H);
+ if(state==='pen')drawPen();else drawPitch();
+ hud();
+ if(state!=='pen'&&state!=='menu'&&state!=='mode'&&state!=='setup'&&state!=='net'&&state!=='lobby'){const m=BASE[phase]+(state==='break'?HALF[phase]:gmin),mm=Math.floor(m),ss=Math.floor((m-mm)*60);
+  g.fillStyle='rgba(0,0,0,.6)';g.fillRect(420,124,440,26);g.fillStyle='#fff';g.font='bold 17px sans-serif';
+  g.fillText(String(mm).padStart(2,'0')+':'+String(ss).padStart(2,'0')+' · '+(state==='break'?'Přestávka':LAB[phase]+(over?' · dohrává se':'')),CX,143)}
+ if(state==='play'&&setupT>0){g.fillStyle='rgba(0,0,0,.6)';g.fillRect(380,160,520,28);g.fillStyle='#fff';g.font='bold 17px sans-serif';g.fillText('ROH – rozestavení hráčů: '+Math.ceil(setupT)+' s  (číslo = výběr hráče)',CX,180)}
+ if(state==='play'&&mustPass&&lk(mustPass.t).length){g.fillStyle='rgba(0,0,0,.6)';g.fillRect(380,160,520,28);g.fillStyle='#fff';g.font='bold 17px sans-serif';g.fillText('Rozehrávka – nahraj spoluhráči (číslo hráče)',CX,180)}
+ if(state==='menu')drawMenu();if(state==='mode')drawMode();if(state==='setup')drawSetup();if(state==='net')drawNet();if(state==='lobby')drawLobby();
+ if(state==='pause')ov([['PAUZA',72,400],['Pokračuj klávesou Esc nebo Pause (nebo klikni)',26,450]],.55);
+ if(state==='goal')ov([['GÓL!',96,400],[T[scorer].name+' skóruje',32,455]],.35);
+ if(state==='out')ov([[msg,84,420]],.25);
+ if(state==='break'){const ns=swapOn?!swapped:swapped;
+  ov([['PŘESTÁVKA',64,270],['Zbývá '+Math.ceil(BREAK-brk)+' min  ·  Enter / mezerník = přeskočit',24,320],
+   ['Další: '+LAB[phase+1]+(phase===1?' (bez hráče 4, brány o 20 % větší)':''),30,385],
+   [(swapOn?'Strany se mění':'Strany zůstávají')+': vlevo '+T[ns?1:0].name+' (levá část), vpravo '+T[ns?0:1].name+' (šipky + numerika)',22,435]],.72);
+  g.fillStyle='#fff';g.fillRect(530,160,220,30);g.strokeStyle='#000';g.lineWidth=2;g.strokeRect(530,160,220,30);
+  g.fillStyle='#000';g.font='bold 17px sans-serif';g.fillText(phase===0?'Přeskočit poločas':'Přeskočit přestávku',CX,181)}
+ if(state==='end'){const w=pen&&pen.w>=0?pen.w:S[0]>S[1]?0:1;
+  ov([['KONEC ZÁPASU',64,290],[T[0].name+'  '+S[0]+' : '+S[1]+'  '+T[1].name,42,355],
+   ...(pen?[['Penalty  '+pen.s[0]+' : '+pen.s[1],32,405]]:[]),['Vítěz: '+T[w].name,40,470],['Enter / mezerník / klik = nová hra',22,525]],.78)}}
+
+// ---------- textura míče (statická, míč se neotáčí) ----------
+const img=new Image();
+img.onload=()=>{const D=BR*6,c=document.createElement('canvas');c.width=c.height=D;const q=c.getContext('2d'),r=D/2-1.5,w=90,h=w*img.height/img.width;
+ q.save();q.beginPath();q.arc(D/2,D/2,r,0,7);q.clip();q.drawImage(img,D/2-.583*w,D/2-.385*h,w,h);q.restore();
+ q.beginPath();q.arc(D/2,D/2,r,0,7);q.strokeStyle='#111';q.lineWidth=2;q.stroke();spr=c};
+img.src='data:image/webp;base64,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';
+
+// ---------- ovládání ----------
+const codes=new Set(KS.flatMap(k=>[...k.mv,k.prev,k.next,...k.pass,k.shoot,...k.lob,k.pause]));
+const isGo=c=>c==='Enter'||c==='NumpadEnter'||c==='Space';
+addEventListener('keydown',e=>{
+ const c=e.code;if(!codes.has(c))return;e.preventDefault();if(e.repeat)return;K[c]=1;
+ if(state==='mode'){if(c==='ArrowUp')mode=mode<=1?3:mode-1;else if(c==='ArrowDown')mode=mode>=3?1:mode+1;else if(isGo(c)){if(mode===3)netOpen();else state='menu'}return}
+ if(state==='net'){if(c==='Escape')state='mode';return}
+ if(state==='lobby'){if(c==='Escape')netLeave();else if(c==='Digit1'||c==='Numpad1')setWant(0);else if(c==='Digit2'||c==='Numpad2')setWant(1);else if(isGo(c))netStart();return}
+ if(net.role!=='client'){
+  if(state==='setup'){if(c==='ArrowLeft')hTeam=0;else if(c==='ArrowRight')hTeam=1;else if(c==='ArrowUp'||c==='ArrowDown')swapOpt=!swapOpt;else if(isGo(c))startMatch();else if(c==='Escape')state='menu';return}
+  if(state==='menu'){if(c==='ArrowUp')sel=(sel+5)%6;else if(c==='ArrowDown')sel=(sel+1)%6;else if(isGo(c))go();else if(c==='Escape')state='mode';return}
+  if(state==='end'){if(isGo(c))endGo();return}
+  if(state==='break'){if(isGo(c))nextPeriod();return}
+  if(KS.some(k=>k.pause===c)&&(state==='play'||state==='pause')){state=state==='play'?'pause':'play';return}
+ }
+ if(state==='play'||state==='pen')keysAct(c)});
+addEventListener('keyup',e=>{K[e.code]=0});
+addEventListener('blur',()=>{for(const k in K)K[k]=0;if(state==='play'&&mode!==3)state='pause'});
+cv.addEventListener('pointerdown',e=>{window.focus();
+ const r=cv.getBoundingClientRect(),s=Math.min(r.width/W,r.height/H),x=(e.clientX-r.left-(r.width-W*s)/2)/s,y=(e.clientY-r.top-(r.height-H*s)/2)/s;
+ for(const b of btns)if(x>b.x&&x<b.x+b.w&&y>b.y&&y<b.y+b.h){b.fn();return}
+  if(net.role==='client')return;
+ if(state==='menu'){OPT.forEach((_,i)=>{const oy=145+i*54;if(x>340&&x<940&&y>oy&&y<oy+44){sel=i;go()}})}
+ else if(state==='pause')state='play';else if(state==='break'){if(x>530&&x<750&&y>160&&y<190)nextPeriod()}else if(state==='end')endGo()});
+
+(window.claude&&window.claude.use?window.claude.use('room'):Promise.resolve(null)).then(r=>{net.room=r||null}).catch(()=>{net.room=null});
+let last=performance.now();
+(function loop(t){const dt=Math.min(.05,Math.max(0,(t-last)/1000));last=t;
+ if(net.role==='client'){clientTick();draw();requestAnimationFrame(loop);return}
+ if(net.role==='host')hostPoll();
+ syncIn();
+ if(state==='play'){update(dt,true);if(state==='play'){gmin+=setupT>0?0:dt/SPM;setupT=Math.max(0,setupT-dt);if(gmin>=HALF[phase]){gmin=HALF[phase];over=true}}}
+ else if(state==='goal'){update(dt,false);if((gt-=dt)<=0){if(over)endPeriod();else{reset(1-scorer);state='play'}}}
+ else if(state==='out'){if((gt-=dt)<=0){if(over)endPeriod();else state='play'}}
+ else if(state==='break'){brk+=dt/SPM;if(brk>=BREAK)nextPeriod()}
+ else if(state==='pen')penTick(dt);
+ if(net.role==='host')hostPub(t);
+ draw();requestAnimationFrame(loop)})(last);
+</script>
+</body>
+</html>
