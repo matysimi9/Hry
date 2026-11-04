@@ -37,8 +37,10 @@ const P=[],act=[3,3],kLock=[false,false],isAI=[false,false],atkT=[0,0],S=[0,0],K
 for(let t=0;t<2;t++)FORM.forEach((f,n)=>P.push({t,n,x:0,y:0,vx:0,vy:0,r:n?PR:11,on:true,cd:0,ax:1,ay:0,hold:0}));
 let state='mode',sel=1,setupT=0,rs=null,mode=1,hTeam=0,swapOpt=true,swapOn=true,over=false,lastP=null,kk=0,mustPass=null,SPM=10/3,phase=0,gmin=0,brk=0,swapped=false,et=false,gt=0,scorer=0,duelT=0,msg='',spr=null,pen=null;
 const sd=t=>swapped?1-t:t,pl=(t,n)=>P[t*4+n],cur=t=>isAI[t]?null:pl(t,act[t]),dirOf=t=>sd(t)?-1:1;
-const IN=[[0,0,0,0],[0,0,0,0]],STC=['play','pause','goal','out','break','pen','end'];   // IN[tým] = [nahoru,dolů,doleva,doprava]
-const net={role:'',room:true,peer:null,gr:null,code:'',me:'',slot:['',''],want:[0,0],order:[],conns:new Map(),latestHost:null,lastHostAt:0,seen:{},seq:0,Q:[],lastQ:-1,lastPub:0,lastIn:'',q:[],qs:0,miss:0,err:'',cfg:{sel:1,swp:1}}; // PeerJS propojuje hráče bez jejich účtů
+const IN=[[0,0,0,0],[0,0,0,0]],INP=Array.from({length:8},()=>[0,0,0,0]),STC=['play','pause','goal','out','break','pen','end'];   // IN[tým], INP[hráč]: směrová tlačítka
+const net={role:'',room:true,peer:null,gr:null,code:'',me:'',myName:'',pick:null,roster:Array(8).fill(null),order:[],conns:new Map(),latestHost:null,lastHostAt:0,seen:{},seq:0,Q:[],lastQ:-1,lastPub:0,lastIn:'',q:[],qs:0,miss:0,err:'',cfg:{sel:1,swp:1}}; // PeerJS propojuje hráče bez jejich účtů
+const playerIndex=(t,n)=>t*4+n,playerOwner=(t,n)=>net.roster[playerIndex(t,n)]&&net.roster[playerIndex(t,n)].peer||'';
+const humanPlayer=p=>mode===3?!!playerOwner(p.t,p.n):cur(p.t)===p;
 
 function reset(kt=kk){
  for(const p of P){const f=FORM[p.n],s=sd(p.t);p.x=FX0+(s?1-f[0]:f[0])*FW;p.y=FY0+(s?1-f[1]:f[1])*FH;p.vx=p.vy=0;p.cd=0;p.ax=s?-1:1;p.ay=0}
@@ -77,8 +79,8 @@ function boost(){   // dvojité stisknutí čísla: přihrávka letí stejně ry
  if(L.lob){if(B.air){B.air.T/=PASST;B.air.t/=PASST}return}
  const[tx,ty]=predict(B,L.q,false,1),dx=tx-B.x,dy=ty-B.y,d=Math.hypot(dx,dy);
  if(d>8){const v0=Math.min(1400,FR*d+300);B.vx=dx/d*v0;B.vy=dy/d*v0}}
-function pass(t,n,lob){const p=cur(t),q=pl(t,n);if(p===q||!q.on||!canKick(p))return;passTo(p,q,lob)}
-function shoot(t,lob){const p=cur(t);if(!canKick(p)||mustPass===p)return;
+function pass(t,n,lob,from=null){const p=from||cur(t),q=pl(t,n);if(p===q||!q.on||!canKick(p))return;passTo(p,q,lob)}
+function shoot(t,lob,from=null){const p=from||cur(t);if(!p||!canKick(p)||mustPass===p)return;
  const d=dirOf(t),gx=d>0?FX1:FX0;
  let ty=aimY(1-t,gx);                            // uprostřed větší šance
  if(Math.random()<1/3)ty=CY+(Math.random()<.5?-1:1)*(GB+20+Math.random()*90);  // třetina střel mimo bránu
@@ -157,10 +159,10 @@ function sub(dt,live){
  if(!live){if(!B.own&&!B.air){B.x+=B.vx*dt;B.y+=B.vy*dt;const f=Math.exp(-FR*dt);B.vx*=f;B.vy*=f;if(B.x<FX0-40){B.x=FX0-40;B.vx=0}else if(B.x>FX1+40){B.x=FX1+40;B.vx=0}}return}
  duelT-=dt;for(let t=0;t<2;t++){const ours=B.own?B.own.t===t:B.last===t;atkT[t]=ours&&dirOf(t)*(B.x-CX)>0?atkT[t]+dt:0}
  for(const p of P){if(!p.on)continue;p.cd=Math.max(0,p.cd-dt);
-  if(cur(p.t)!==p&&p.n===0)aiKeeper(p,dt);
-  else if(cur(p.t)!==p)aiPlayer(p,dt);
+   if(!humanPlayer(p)&&p.n===0)aiKeeper(p,dt);
+   else if(!humanPlayer(p))aiPlayer(p,dt);
   else{let dx=0,dy=0;
-   if(cur(p.t)===p&&!((setupT>0||mustPass===p)&&B.own===p)){const I=IN[p.t];dx=I[3]-I[2];dy=I[1]-I[0]}
+    if(!((setupT>0||mustPass===p)&&B.own===p)){const I=mode===3?INP[playerIndex(p.t,p.n)]:IN[p.t];dx=I[3]-I[2];dy=I[1]-I[0]}
    const l=Math.hypot(dx,dy);const sv=SPD*(B.own===p?.8:1);p.vx=l?dx/l*sv:0;p.vy=l?dy/l*sv:0;if(l){p.ax=dx/l;p.ay=dy/l}}
   p.x=Math.max(p.r,Math.min(W-p.r,p.x+p.vx*dt));p.y=Math.max(120+p.r,Math.min(H-p.r,p.y+p.vy*dt))}
  for(let i=0;i<8;i++)for(let j=i+1;j<8;j++){const a=P[i],b=P[j];if(!a.on||!b.on)continue;
@@ -186,7 +188,7 @@ function update(dt,live){const n=Math.max(1,Math.ceil(dt/.004));for(let i=0;i<n;
 
 // ---------- průběh zápasu ----------
 function go(){if(mode===1)state='setup';else startMatch()}
-function startMatch(){kk=Math.random()<.5?0:1;isAI[0]=mode===3?!net.slot[0]:mode===1&&hTeam!==0;isAI[1]=mode===3?!net.slot[1]:mode===1&&hTeam!==1;swapOn=mode===2||swapOpt;kLock[0]=kLock[1]=false;SPM=SPMS[sel];gBase=GSC[sel];S[0]=S[1]=0;phase=0;gmin=0;swapped=false;et=false;pen=null;setGoal(1);P.forEach(p=>p.on=true);reset();state='play'}
+function startMatch(){kk=Math.random()<.5?0:1;isAI[0]=mode===3?!net.roster.slice(0,4).some(Boolean):mode===1&&hTeam!==0;isAI[1]=mode===3?!net.roster.slice(4,8).some(Boolean):mode===1&&hTeam!==1;swapOn=mode===2||swapOpt;kLock[0]=kLock[1]=false;SPM=SPMS[sel];gBase=GSC[sel];S[0]=S[1]=0;phase=0;gmin=0;swapped=false;et=false;pen=null;setGoal(1);P.forEach(p=>p.on=true);reset();state='play'}
 function endPeriod(){const tie=S[0]===S[1];
  if(phase===1||phase===3){if(!tie){state='end';return}if(phase===3){startPen();return}}
  state='break';brk=0}
@@ -205,13 +207,16 @@ function penTick(dt){if(pen.t<=0){if(isAI[pen.turn]&&pen.a===null)pen.a=Math.ran
 function lk(t){   // části klávesnice (0 levá, 1 pravá) tohoto zařízení, které ovládají tým t
  if(isAI[t])return[];
  if(mode<3)return[sd(t)];
- if(!net.me||net.slot[t]!==net.me)return[];
- return net.slot[1-t]===net.me?[t]:[0,1]}
-function syncIn(){for(let t=0;t<2;t++){if(mode===3&&net.slot[t]&&net.slot[t]!==net.me)continue;const I=IN[t];I[0]=I[1]=I[2]=I[3]=0;for(const ks of lk(t)){const m=KS[ks].mv;for(let i=0;i<4;i++)I[i]|=K[m[i]]|0}}}
-function doAct(t,a,lob){   // akce hráče: n/p přepnutí hráče, s střela, d0–d3 číslo hráče
+ return[]}
+function syncIn(){if(mode===3){for(const I of INP)I[0]=I[1]=I[2]=I[3]=0;
+  if(net.role==='host'&&net.pick){const[t,n]=net.pick,m=KS[0].mv,I=INP[playerIndex(t,n)];for(let i=0;i<4;i++)I[i]=K[m[i]]|0}
+  for(const r of net.conns.values()){const p=r.presence.pick,ip=r.presence.inp;if(!p||!ip||p.t<0||p.t>1||p.n<0||p.n>3)continue;const I=INP[playerIndex(p.t,p.n)],b=ip.k|0;for(let i=0;i<4;i++)I[i]=b>>i&1}return}
+ for(let t=0;t<2;t++){const I=IN[t];I[0]=I[1]=I[2]=I[3]=0;for(const ks of lk(t)){const m=KS[ks].mv;for(let i=0;i<4;i++)I[i]|=K[m[i]]|0}}}
+function doAct(t,a,lob,playerN=null){   // online hráč ovládá jednu zvolenou pozici; offline režim může přepínat
  if(isAI[t])return;
  if(state==='pen'){if(a[0]==='d')penPick(t,+a[1]);return}
  if(state!=='play')return;
+ if(mode===3&&playerN!==null){const p=pl(t,playerN);if(a==='s')shoot(t,lob,p);else if(a[0]==='d')pass(t,+a[1],lob,p);return}
  if(a==='n'){sw(t,1);kLock[t]=!act[t]}
  else if(a==='p'){sw(t,-1);kLock[t]=!act[t]}
  else if(a==='s')shoot(t,lob);
@@ -222,14 +227,16 @@ function doAct(t,a,lob){   // akce hráče: n/p přepnutí hráče, s střela, d
 function penPick(t,i){if(pen.t>0||i<0||i>2)return;
  if(t===pen.turn){if(pen.a===null)pen.a=i}else if(pen.b===null)pen.b=i;
  if(pen.a!==null&&pen.b!==null){pen.t=2.4;pen.res=pen.a===pen.b?0:1}}   // stejná část = chyceno, jinak gól
-function sendAct(t,a,l){if(net.role==='client')netQ(t,a,l);else doAct(t,a,l)}
-function keysAct(c){for(let t=0;t<2;t++)for(const ks of lk(t)){const k=KS[ks];let a=null;
+function sendAct(t,a,l,n=null){if(net.role==='client')netQ(t,a,l,n);else doAct(t,a,l,n)}
+function keysAct(c){if(mode===3){if(!net.pick)return;const[t,n]=net.pick,k=KS[0];let a=null;if(c===k.shoot)a='s';else{const i=k.pass.indexOf(c);if(i>=0)a='d'+i}if(a)sendAct(t,a,k.lob.some(l=>K[l])?1:0,n);return}
+ for(let t=0;t<2;t++)for(const ks of lk(t)){const k=KS[ks];let a=null;
  if(c===k.next)a='n';else if(c===k.prev)a='p';else if(c===k.shoot)a='s';else{const i=k.pass.indexOf(c);if(i>=0)a='d'+i}
  if(a)sendAct(t,a,k.lob.some(l=>K[l])?1:0)}}
 function myPeer(){return net.me}
 function sendData(c,data){try{if(c&&c.open)c.send(data)}catch(e){}}
 function peers(){return[...net.conns.values()].filter(p=>p.conn.open).map(p=>({peer:p.peer,kind:'viewer',presence:p.presence,isMe:false}))}
-function setWant(t){net.want[t]^=1;if(net.role==='client')sendData(net.gr,{type:'presence',p:{w:net.want.slice()}})}
+function choosePlayer(t,n){const ix=playerIndex(t,n),who=net.roster[ix];if(who&&who.peer!==net.me)return;net.pick=net.pick&&net.pick[0]===t&&net.pick[1]===n?null:[t,n];
+ if(net.role==='client')sendData(net.gr,{type:'presence',p:{name:net.myName,pick:net.pick?{t:net.pick[0],n:net.pick[1]}:null}})}
 function netOpen(){state='net';net.err=''}
 function roomCode(){const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let c='';for(let i=0;i<6;i++)c+=a[Math.random()*a.length|0];return c}
 function makePeer(id){return new Promise((resolve,reject)=>{if(!window.Peer){reject(new Error('Knihovna online hry se nenačetla'));return}
@@ -243,33 +250,35 @@ function acceptConn(c){if(net.conns.size>=8){c.on('open',()=>{sendData(c,{type:'
 async function netHost(){net.err='';if(!window.Peer){net.err='Online knihovna se nenačetla. Obnov stránku a zkus to znovu.';return}
  let p=null,code='';for(let i=0;i<5&&!p;i++){code=roomCode();try{p=await makePeer('fb-'+code.toLowerCase())}catch(e){if(e.type!=='unavailable-id'){net.err='Online služba není dostupná. Zkus to prosím znovu.';return}}}
  if(!p){net.err='Nepodařilo se vytvořit jedinečný kód. Zkus to znovu.';return}
- Object.assign(net,{peer:p,role:'host',room:true,gr:null,code,me:p.id,slot:['',''],want:[0,0],order:[],conns:new Map(),seen:{},Q:[],lastQ:-1,q:[],qs:0,miss:0,lastIn:'',err:''});
+  Object.assign(net,{peer:p,role:'host',room:true,gr:null,code,me:p.id,myName:'Hostitel',pick:null,roster:Array(8).fill(null),order:[],conns:new Map(),seen:{},Q:[],lastQ:-1,q:[],qs:0,miss:0,lastIn:'',err:''});
  p.on('connection',acceptConn);mode=3;isAI[0]=isAI[1]=false;state='lobby'}
 function joinFail(p,m){if(net.peer!==p)return;const c=net.gr;net.peer=null;net.gr=null;net.role='';if(c)try{c.close()}catch(e){};if(p)try{p.destroy()}catch(e){};net.err=m;mode=1;state='net'}
 async function joinGame(code){code=(code||'').trim().toUpperCase();if(!/^[A-Z0-9]{6}$/.test(code)){net.err='Zadej šestimístný kód místnosti.';return}
  net.err='Připojuji se…';let p;try{p=await makePeer()}catch(e){net.err='Online služba není dostupná. Zkus to prosím znovu.';return}
  const c=p.connect('fb-'+code.toLowerCase(),{reliable:true}),timer=setTimeout(()=>joinFail(p,'Hru s tímto kódem se nepodařilo najít.'),12000);
- Object.assign(net,{peer:p,role:'client',room:true,gr:c,code,me:'',slot:['',''],want:[0,0],order:[],conns:new Map(),latestHost:null,lastHostAt:0,seen:{},Q:[],lastQ:-1,q:[],qs:0,miss:0,lastIn:'',err:''});
+  Object.assign(net,{peer:p,role:'client',room:true,gr:c,code,me:'',myName:'',pick:null,roster:Array(8).fill(null),order:[],conns:new Map(),latestHost:null,lastHostAt:0,seen:{},Q:[],lastQ:-1,q:[],qs:0,miss:0,lastIn:'',err:''});
  p.on('open',id=>{if(net.peer===p)net.me=id});
- c.on('open',()=>{clearTimeout(timer);mode=3;isAI[0]=isAI[1]=false;state='lobby';sendData(c,{type:'presence',p:{w:[0,0]}})});
+  c.on('open',()=>{clearTimeout(timer);const name=(window.prompt('Zadej přezdívku do hry:')||'').trim().slice(0,18);if(!name){joinFail(p,'Připojení zrušeno – přezdívka je potřeba.');return}net.myName=name;mode=3;isAI[0]=isAI[1]=false;state='lobby';sendData(c,{type:'presence',p:{name,pick:null}})});
  c.on('data',m=>{if(!m)return;if(m.type==='host'){net.latestHost=m.data;net.lastHostAt=performance.now()}else if(m.type==='error'){net.err=m.text||'Do místnosti se nelze připojit.'}});
  c.on('close',()=>{clearTimeout(timer);if(net.role==='client'&&net.peer===p)joinFail(p,'Spojení s hostitelem bylo přerušeno.')});
  c.on('error',()=>{clearTimeout(timer);if(net.role==='client'&&net.peer===p)joinFail(p,'Připojení ke hře se nezdařilo.')});
  p.on('error',e=>{if(net.role==='client'&&e.type==='network')net.err='Připojení k online službě bylo přerušeno.'})}
 function promptJoin(){const s=window.prompt('Zadej šestimístný kód hry:');if(s!==null)joinGame(s)}
 function netLeave(m){const p=net.peer,gr=net.gr;net.peer=null;net.gr=null;net.role='';if(gr)try{gr.close()}catch(e){};for(const r of net.conns.values())try{r.conn.close()}catch(e){};net.conns.clear();if(p)try{p.destroy()}catch(e){}
- net.slot=['',''];net.want=[0,0];net.Q=[];net.latestHost=null;net.err=m||'';mode=1;isAI[0]=isAI[1]=false;state='mode'}
+ net.pick=null;net.roster=Array(8).fill(null);net.Q=[];net.latestHost=null;net.err=m||'';mode=1;isAI[0]=isAI[1]=false;state='mode'}
 function netStart(){if(net.role==='host'&&net.me){mode=3;startMatch()}}
 function endGo(){if(mode===3){if(net.role==='host')state='lobby'}else state='mode'}
-function netQ(t,a,l){net.q.push([++net.qs,t,a,l]);if(net.q.length>10)net.q.shift();pushIn()}
-function pushIn(){if(!net.gr)return;const k=[0,0];
- for(let t=0;t<2;t++){let b=0;for(const ks of lk(t)){const m=KS[ks].mv;for(let i=0;i<4;i++)b|=(K[m[i]]|0)<<i}k[t]=b}
+function netQ(t,a,l,n){net.q.push([++net.qs,t,a,l,n]);if(net.q.length>10)net.q.shift();pushIn()}
+function pushIn(){if(!net.gr||!net.pick)return;const m=KS[0].mv;let k=0;for(let i=0;i<4;i++)k|=(K[m[i]]|0)<<i;
  const o={k,q:net.q},j=JSON.stringify(o);if(j!==net.lastIn){net.lastIn=j;sendData(net.gr,{type:'input',inp:o})}}
 function hostPoll(){const ps=peers();for(const p of ps)if(!net.order.includes(p.peer))net.order.push(p.peer);const labs=ps.map(p=>p.peer);net.order=net.order.filter(l=>labs.includes(l));
- if(state==='lobby'){for(let t=0;t<2;t++){let o=net.want[t]?net.me:'';if(!o)for(const l of net.order){const q=ps.find(p=>p.peer===l),w=q&&q.presence.w;if(w&&w[t]){o=l;break}}net.slot[t]=o}}
- else if(mode===3){for(let t=0;t<2;t++){const lab=net.slot[t];if(!lab||lab===net.me)continue;const p=ps.find(q=>q.peer===lab);if(!p){net.slot[t]='';isAI[t]=true;continue}const ip=(p.presence||{}).inp;if(!ip)continue;
-  const b=(ip.k&&ip.k[t])|0,I=IN[t];for(let i=0;i<4;i++)I[i]=b>>i&1;
-  for(const e of ip.q||[]){if(!Array.isArray(e)||e[1]!==t||!/^(n|p|s|d[0-3])$/.test(e[2]))continue;const key=lab+t;if(e[0]>(net.seen[key]||0)){net.seen[key]=e[0];doAct(t,e[2],e[3]?1:0)}}}}}
+ if(state==='lobby'){const roster=Array(8).fill(null);if(net.pick)roster[playerIndex(net.pick[0],net.pick[1])]={peer:net.me,name:net.myName};
+  for(const l of net.order){const q=ps.find(p=>p.peer===l),pick=q&&q.presence.pick;if(!pick||pick.t<0||pick.t>1||pick.n<0||pick.n>3)continue;const i=playerIndex(pick.t,pick.n);if(!roster[i])roster[i]={peer:l,name:String(q.presence.name||'Hráč').slice(0,18)}}
+  net.roster=roster;for(let t=0;t<2;t++)isAI[t]=!roster.slice(t*4,t*4+4).some(Boolean)}
+ else if(mode===3){for(let i=0;i<net.roster.length;i++){const owner=net.roster[i]&&net.roster[i].peer;if(!owner||owner===net.me)continue;const r=ps.find(q=>q.peer===owner);if(!r){net.roster[i]=null;continue}
+   const ip=r.presence.inp;if(!ip)continue;const t=i>>2,n=i%4;
+   for(const e of ip.q||[]){if(!Array.isArray(e)||e[1]!==t||e[4]!==n||!/^(s|d[0-3])$/.test(e[2]))continue;const key=owner+t+n;if(e[0]>(net.seen[key]||0)){net.seen[key]=e[0];doAct(t,e[2],e[3]?1:0,n)}}}
+  for(let t=0;t<2;t++)isAI[t]=!net.roster.slice(t*4,t*4+4).some(Boolean)}}
 function snap(){const r1=v=>Math.round(v*10)/10;   // snímek zápasu pro klienty
  return{q:++net.seq,st:STC.indexOf(state),ph:phase,gm:+gmin.toFixed(3),br:+brk.toFixed(3),ov:over?1:0,sc:[S[0],S[1]],sw:swapped?1:0,so:swapOn?1:0,
   g:[r1(GD),r1(GM),r1(GB)],p:P.flatMap(p=>[r1(p.x),r1(p.y),p.on?1:0]),
@@ -277,8 +286,8 @@ function snap(){const r1=v=>Math.round(v*10)/10;   // snímek zápasu pro klient
   ac:[act[0],act[1]],ai:[isAI[0]?1:0,isAI[1]?1:0],rs:rs?[r1(rs.p.x),r1(rs.p.y),rs.p.r]:0,su:+setupT.toFixed(2),mp:mustPass?mustPass.t:-1,ms:msg,sr:scorer,
   pn:pen?{u:pen.turn,s:pen.s,n:pen.n,a:pen.a===null?-1:pen.t>0?pen.a:9,b:pen.b===null?-1:pen.t>0?pen.b:9,t:+pen.t.toFixed(2),r:pen.res,w:pen.w}:0}}
 function hostPub(now){if(!net.peer)return;let data;
- if(state==='lobby'){if(now-net.lastPub<=100)return;net.lastPub=now;data={h:1,w:net.want,ss:net.slot,cfg:{sel,swp:swapOpt?1:0},m:0,s:null}}
- else if(STC.includes(state)){if(now-net.lastPub<=50)return;net.lastPub=now;data={h:1,w:net.want,ss:net.slot,m:1,s:snap()}}else return;
+ if(state==='lobby'){if(now-net.lastPub<=100)return;net.lastPub=now;data={h:1,players:net.roster,cfg:{sel,swp:swapOpt?1:0},m:0,s:null}}
+ else if(STC.includes(state)){if(now-net.lastPub<=50)return;net.lastPub=now;data={h:1,players:net.roster,m:1,s:snap()}}else return;
  for(const r of net.conns.values())sendData(r.conn,{type:'host',data})}
 function applyView(){const Q=net.Q;if(!Q.length)return;   // klient: vykreslí zpožděnou interpolaci mezi snímky hostitele
  const rt=performance.now()-100;let ia=-1;for(let i=0;i<Q.length;i++)if(Q[i].t<=rt)ia=i;
@@ -293,7 +302,7 @@ function applyView(){const Q=net.Q;if(!Q.length)return;   // klient: vykreslí z
 function clientTick(){if(!net.gr)return;const hp=net.latestHost;
  if(!hp){if(performance.now()-net.lastHostAt>12000&&net.lastHostAt)netLeave('Hostitel odešel');return}
  net.me=net.peer&&net.peer.id||net.me;
- if(hp.ss)net.slot=hp.ss;if(hp.cfg)net.cfg=hp.cfg;
+ if(hp.players)net.roster=hp.players;if(hp.cfg)net.cfg=hp.cfg;
  if(hp.m===1&&hp.s){if(hp.s.q!==net.lastQ){net.lastQ=hp.s.q;net.Q.push({t:performance.now(),s:hp.s});if(net.Q.length>10)net.Q.shift()}applyView();pushIn()}
  else if(state!=='lobby'){state='lobby';net.Q.length=0;net.lastQ=-1}}
 
@@ -377,13 +386,13 @@ function btn(x,y,w,h,label,fn,on,col,sub){btns.push({x,y,w,h,fn});
  g.strokeStyle=on?'#fff':'rgba(255,255,255,.35)';g.lineWidth=on?5:2;g.strokeRect(x,y,w,h);
  g.fillStyle=col===T[0].col?'#000':'#fff';g.font='bold '+(h>70?36:22)+'px sans-serif';g.fillText(label,x+w/2,y+h*(sub?.48:.66));
  if(sub){g.font='18px sans-serif';g.fillText(sub,x+w/2,y+h*.8)}}
-function drawMode(){
+ function drawMode(){
   g.fillStyle='rgba(8,24,14,.94)';g.fillRect(0,0,W,H);g.fillStyle='#fff';
   g.font='bold 64px sans-serif';g.fillText('FOTBAL 4 na 4',CX,150);
   g.font='24px sans-serif';g.fillText('Vyber režim  (↑ ↓ + Enter, nebo klikni)',CX,205);
   btn(340,240,600,100,'1 hráč',()=>{mode=1;state='menu'},mode===1,0,'hraješ proti počítači');
   btn(340,360,600,100,'2 hráči',()=>{mode=2;state='menu'},mode===2,0,'dva lidé na jedné klávesnici');
-  btn(340,480,600,100,'Online',()=>{mode=3;netOpen()},mode===3,0,'hra na více zařízeních (každý tým ovládá jeden člověk)')}
+   btn(340,480,600,100,'Online',()=>{mode=3;netOpen()},mode===3,0,'hra na více zařízeních (každý ovládá jednoho hráče)')}
 function drawNet(){
   g.fillStyle='rgba(8,24,14,.94)';g.fillRect(0,0,W,H);g.fillStyle='#fff';
   g.font='bold 52px sans-serif';g.fillText('Online hra',CX,90);
@@ -391,28 +400,30 @@ function drawNet(){
   g.fillText('Bez účtu: založ místnost a předej kód druhému hráči.',CX,150);
   if(!window.Peer){g.fillStyle='#ffb4a8';g.fillText('Online knihovna se nenačetla. Zkontroluj připojení a obnov stránku.',CX,205)}
   else{
-   btn(340,235,600,105,'1. Založit hru',netHost,false,'#22b14c','vygeneruje se šestimístný kód');
+   btn(340,235,600,105,'1. Založit online místnost',netHost,false,'#22b14c','vygeneruje se šestimístný kód');
    btn(340,370,600,105,'2. Přidat se do hry',promptJoin,false,'#2878b8','zadej kód od hostitele')}
   if(net.err){g.fillStyle='#ffb4a8';g.font='20px sans-serif';g.fillText(net.err,CX,690)}
   btn(20,20,120,42,'‹ Zpět',()=>{state='mode'})}
 function drawLobby(){
   g.fillStyle='rgba(8,24,14,.94)';g.fillRect(0,0,W,H);g.fillStyle='#fff';
-  const host=net.role==='host',n=host?net.conns.size+1:2;
-  g.font='bold 44px sans-serif';g.fillText('Online hra '+net.code,CX,70);
-  g.font='20px sans-serif';g.fillText((host?'Pošli tento kód druhému hráči: ':'Připojeno k hostiteli. ')+'Zařízení ve hře: '+n,CX,105);
-  [0,1].forEach(t=>{const lab=net.slot[t],who=!lab?'volné – hraje bot':lab===net.me?'hraješ ty':'obsazeno jiným zařízením';
-   btn(t?660:200,130,420,90,t?'Fialové':'Oranžové',()=>{if(!lab||lab===net.me)setWant(t)},!!lab&&lab===net.me,T[t].col,who)});
-  const mine=[0,1].filter(t=>net.slot[t]&&net.slot[t]===net.me).length;
-  g.fillStyle='#cfe8d6';g.font='16px sans-serif';
-  g.fillText(mine===2?'Na tomto zařízení hrají dva hráči: oranžoví levá část klávesnice, fialoví pravá část.':mine===1?'Hraješ na levé NEBO pravé části klávesnice (obě fungují).':'Vyber tým (klik nebo klávesa 1 / 2). Můžeš si vzít oba týmy (dva hráči na jednom zařízení). Bez výběru se jen díváš.',CX,248);
+  const host=net.role==='host';
+  g.font='bold 42px sans-serif';g.fillText('Online místnost · '+net.code,CX,62);
+  g.font='20px sans-serif';g.fillText(host?'Pošli kód spoluhráčům a vyber si pozici:':'Připojeno jako '+(net.myName||'hráč')+' · vyber si volnou pozici:',CX,98);
+  for(let t=0;t<2;t++){
+   const x=t?675:105;g.fillStyle=T[t].col;g.fillRect(x,120,500,34);g.fillStyle=t?'#fff':'#111';g.font='bold 22px sans-serif';g.fillText(t?'Fialový tým':'Oranžový tým',x+250,145);
+   for(let n=0;n<4;n++){const ix=playerIndex(t,n),r=net.roster[ix],mine=!!r&&r.peer===net.me,label=n===0?'Brankář':'Hráč '+(n+1),who=r?r.name:'Volné místo';
+    btn(x,160+n*54,500,48,label,()=>choosePlayer(t,n),mine,r?T[t].col:'rgba(255,255,255,.13)',who)}
+  }
+  g.fillStyle='#cfe8d6';g.font='16px sans-serif';g.fillText('Vyber jedno volné místo. Každý hráč ovládá svou pozici; všichni vidí obsazení průběžně.',CX,390);
+  g.fillText('Ovládání: I J K L pohyb · 1–4 přihrávka · mezerník střela · Tab lob.',CX,413);
   if(host){
-   g.fillStyle='#fff';g.font='22px sans-serif';g.fillText('Rychlost času:',CX,290);
-   OPT.forEach((s,i)=>btn(i%2?660:220,305+(i>>1)*48,400,40,s,()=>{sel=i},i===sel));
-   btn(430,462,200,44,'Střídání: zap.',()=>{swapOpt=true},swapOpt);btn(650,462,200,44,'Střídání: vyp.',()=>{swapOpt=false},!swapOpt);
-   btn(340,530,600,90,'Začít zápas',netStart,false,'#22b14c')}
+   g.fillStyle='#fff';g.font='20px sans-serif';g.fillText('Rychlost zápasu:',CX,442);
+   OPT.forEach((s,i)=>btn(i%2?660:220,453+(i>>1)*36,400,32,s,()=>{sel=i},i===sel));
+   btn(430,565,200,34,'Střídání: zap.',()=>{swapOpt=true},swapOpt);btn(650,565,200,34,'Střídání: vyp.',()=>{swapOpt=false},!swapOpt);
+   btn(340,615,600,65,'Zahájit zápas',netStart,false,'#22b14c')}
   else{
-   g.fillStyle='#fff';g.font='24px sans-serif';g.fillText('Čeká se, až hostitel zahájí zápas…',CX,360);
-   const c=net.cfg||{};g.fillStyle='#cfe8d6';g.font='18px sans-serif';g.fillText('Rychlost: '+(OPT[c.sel]||'?')+' · střídání stran: '+(c.swp?'ano':'ne'),CX,400)}
+   const c=net.cfg||{};g.fillStyle='#cfe8d6';g.font='18px sans-serif';g.fillText('Rychlost: '+(OPT[c.sel]||'?')+' · střídání stran: '+(c.swp?'ano':'ne'),CX,445);
+   g.fillStyle='#fff';g.font='23px sans-serif';g.fillText('Čeká se, až hostitel zahájí zápas…',CX,630)}
   btn(20,20,140,42,'‹ Odejít',()=>netLeave())}
 function drawSetup(){
  g.fillStyle='rgba(8,24,14,.94)';g.fillRect(0,0,W,H);g.fillStyle='#fff';
@@ -467,7 +478,7 @@ addEventListener('keydown',e=>{
  const c=e.code;if(!codes.has(c))return;e.preventDefault();if(e.repeat)return;K[c]=1;
  if(state==='mode'){if(c==='ArrowUp')mode=mode<=1?3:mode-1;else if(c==='ArrowDown')mode=mode>=3?1:mode+1;else if(isGo(c)){if(mode===3)netOpen();else state='menu'}return}
  if(state==='net'){if(c==='Escape')state='mode';return}
- if(state==='lobby'){if(c==='Escape')netLeave();else if(c==='Digit1'||c==='Numpad1')setWant(0);else if(c==='Digit2'||c==='Numpad2')setWant(1);else if(isGo(c))netStart();return}
+  if(state==='lobby'){if(c==='Escape')netLeave();else if(isGo(c))netStart();return}
  if(net.role!=='client'){
   if(state==='setup'){if(c==='ArrowLeft')hTeam=0;else if(c==='ArrowRight')hTeam=1;else if(c==='ArrowUp'||c==='ArrowDown')swapOpt=!swapOpt;else if(isGo(c))startMatch();else if(c==='Escape')state='menu';return}
   if(state==='menu'){if(c==='ArrowUp')sel=(sel+5)%6;else if(c==='ArrowDown')sel=(sel+1)%6;else if(isGo(c))go();else if(c==='Escape')state='mode';return}
