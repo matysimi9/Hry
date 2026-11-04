@@ -452,7 +452,7 @@ const img=new Image();
 img.onload=()=>{const D=BR*6,c=document.createElement('canvas');c.width=c.height=D;const q=c.getContext('2d'),r=D/2-1.5,w=90,h=w*img.height/img.width;
  q.save();q.beginPath();q.arc(D/2,D/2,r,0,7);q.clip();q.drawImage(img,D/2-.583*w,D/2-.385*h,w,h);q.restore();
  q.beginPath();q.arc(D/2,D/2,r,0,7);q.strokeStyle='#111';q.lineWidth=2;q.stroke();spr=c};
-img.src = './míč.webp';
+img.src = './míč.webp'
 
 // ---------- ovládání ----------
 const codes=new Set(KS.flatMap(k=>[...k.mv,k.prev,k.next,...k.pass,k.shoot,...k.lob,k.pause]));
