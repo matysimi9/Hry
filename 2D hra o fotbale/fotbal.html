@@ -29,7 +29,7 @@ canvas{display:block;width:100%;height:100%;object-fit:contain}
  <form id="onlineCard">
   <h2 id="onlineTitle">Připojit se do hry</h2>
   <p id="onlineHint">Zadej šestimístný kód místnosti.</p>
-  <input id="onlineValue" type="text" maxlength="6" autocomplete="off" required>
+  <input id="onlineValue" type="text" maxlength="6" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="text" required>
   <div id="onlineActions"><button id="onlineSubmit" type="submit">Pokračovat</button><button id="onlineCancel" type="button">Zrušit</button></div>
   <p id="onlineMessage"></p>
  </form>
@@ -59,13 +59,13 @@ const sd=t=>swapped?1-t:t,pl=(t,n)=>P[t*4+n],cur=t=>isAI[t]?null:pl(t,act[t]),di
 const IN=[[0,0,0,0],[0,0,0,0]],INP=Array.from({length:8},()=>[0,0,0,0]),STC=['play','pause','goal','out','break','pen','end'];   // IN[tým], INP[hráč]: směrová tlačítka
 const net={role:'',room:true,peer:null,gr:null,code:'',me:'',myName:'',pick:null,roster:Array(8).fill(null),order:[],conns:new Map(),latestHost:null,lastHostAt:0,joinAttempt:null,seen:{},seq:0,Q:[],lastQ:-1,lastPub:0,lastIn:'',q:[],qs:0,miss:0,err:'',cfg:{sel:1,swp:1}}; // PeerJS propojuje hráče bez jejich účtů
 const onlineDialog=document.getElementById('onlineDialog'),onlineForm=document.getElementById('onlineCard'),onlineValue=document.getElementById('onlineValue');let onlineStage='';
-function openOnlineDialog(stage,value='',message=''){onlineStage=stage;onlineDialog.hidden=false;onlineValue.value=value;onlineValue.maxLength=stage==='code'?6:18;onlineValue.style.textTransform=stage==='code'?'uppercase':'none';
+function openOnlineDialog(stage,value='',message=''){onlineStage=stage;onlineDialog.hidden=false;onlineValue.value=value;onlineValue.maxLength=stage==='code'?6:18;onlineValue.style.textTransform='none';
  document.getElementById('onlineTitle').textContent=stage==='code'?'Připojit se do hry':'Tvoje přezdívka';
- document.getElementById('onlineHint').textContent=stage==='code'?'Zadej šestimístný kód místnosti.':'Zvol si přezdívku, kterou uvidí ostatní hráči.';
+ document.getElementById('onlineHint').textContent=stage==='code'?'Zadej šestimístný kód z písmen.':'Zvol si přezdívku, kterou uvidí ostatní hráči.';
  document.getElementById('onlineSubmit').textContent=stage==='code'?'Připojit':'Pokračovat';document.getElementById('onlineMessage').textContent=message;onlineValue.focus()}
 function closeOnlineDialog(){onlineDialog.hidden=true;onlineStage=''}
-onlineValue.addEventListener('input',()=>{if(onlineStage==='code')onlineValue.value=onlineValue.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6)});
-onlineForm.addEventListener('submit',e=>{e.preventDefault();const value=onlineValue.value.trim();if(onlineStage==='code'){if(!/^[A-Z0-9]{6}$/.test(value)){document.getElementById('onlineMessage').textContent='Kód musí mít šest písmen nebo číslic.';return}joinGame(value);return}
+onlineValue.addEventListener('input',()=>{if(onlineStage==='code')onlineValue.value=onlineValue.value.replace(/[^A-Za-z]/g,'').slice(0,6)});
+onlineForm.addEventListener('submit',e=>{e.preventDefault();const value=onlineValue.value.trim();if(onlineStage==='code'){if(!/^[A-Za-z]{6}$/.test(value)){document.getElementById('onlineMessage').textContent='Kód musí mít šest písmen.';return}joinGame(value);return}
  if(onlineStage==='name'){const name=value.slice(0,18);if(!name){document.getElementById('onlineMessage').textContent='Zadej přezdívku.';return}net.myName=name;mode=3;isAI[0]=isAI[1]=false;state='lobby';sendData(net.gr,{type:'presence',p:{name,pick:null}});closeOnlineDialog()}});
 document.getElementById('onlineCancel').addEventListener('click',()=>{if(net.joinAttempt){net.joinAttempt.cancelled=true;net.joinAttempt=null;closeOnlineDialog()}else if(net.role==='client'&&net.peer)joinFail(net.peer,'Připojení bylo zrušeno.');else closeOnlineDialog()});
 const playerIndex=(t,n)=>t*4+n,playerOwner=(t,n)=>net.roster[playerIndex(t,n)]&&net.roster[playerIndex(t,n)].peer||'';
@@ -267,7 +267,7 @@ function peers(){return[...net.conns.values()].filter(p=>p.conn.open).map(p=>({p
 function choosePlayer(t,n){const ix=playerIndex(t,n),who=net.roster[ix];if(who&&who.peer!==net.me)return;net.pick=net.pick&&net.pick[0]===t&&net.pick[1]===n?null:[t,n];
  if(net.role==='client')sendData(net.gr,{type:'presence',p:{name:net.myName,pick:net.pick?{t:net.pick[0],n:net.pick[1]}:null}})}
 function netOpen(){state='net';net.err=''}
-function roomCode(){const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let c='';for(let i=0;i<6;i++)c+=a[Math.random()*a.length|0];return c}
+function roomCode(){const a='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz';let c='';for(let i=0;i<6;i++)c+=a[Math.random()*a.length|0];return c}
 function makePeer(id){return new Promise((resolve,reject)=>{if(!window.Peer){reject(new Error('Knihovna online hry se nenačetla'));return}
  const p=new Peer(id),timer=setTimeout(()=>{p.destroy();reject(new Error('Online služba neodpovídá'))},12000);let done=false;
  p.on('open',()=>{if(done)return;done=true;clearTimeout(timer);resolve(p)});
@@ -277,15 +277,15 @@ function acceptConn(c){if(net.conns.size>=8){c.on('open',()=>{sendData(c,{type:'
  c.on('data',m=>{if(!m||typeof m!=='object')return;if(m.type==='presence'&&m.p)r.presence={...r.presence,...m.p};else if(m.type==='input'&&m.inp)r.presence.inp=m.inp});
  const gone=()=>{net.conns.delete(c.peer);net.order=net.order.filter(x=>x!==c.peer)};c.on('close',gone);c.on('error',gone)}
 async function netHost(){net.err='';if(!window.Peer){net.err='Online knihovna se nenačetla. Obnov stránku a zkus to znovu.';return}
-  let p=null,code='';for(let i=0;i<5&&!p;i++){code=roomCode();try{p=await makePeer('fb-'+code.toLowerCase())}catch(e){if(e.type!=='unavailable-id'){net.err='Místnost se nepodařilo vytvořit ('+(e.type||e.message||'chyba')+').';return}}}
+  let p=null,code='';for(let i=0;i<5&&!p;i++){code=roomCode();try{p=await makePeer('fb-'+code)}catch(e){if(e.type!=='unavailable-id'){net.err='Místnost se nepodařilo vytvořit ('+(e.type||e.message||'chyba')+').';return}}}
  if(!p){net.err='Nepodařilo se vytvořit jedinečný kód. Zkus to znovu.';return}
   Object.assign(net,{peer:p,role:'host',room:true,gr:null,code,me:p.id,myName:'Hostitel',pick:null,roster:Array(8).fill(null),order:[],conns:new Map(),seen:{},Q:[],lastQ:-1,q:[],qs:0,miss:0,lastIn:'',err:''});
   p.on('connection',acceptConn);p.on('error',e=>{if(net.peer===p)net.err='Síťová chyba: '+(e.type||'neznámá chyba')});mode=3;isAI[0]=isAI[1]=false;state='lobby'}
 function joinFail(p,m){if(net.peer!==p)return;const c=net.gr;net.peer=null;net.gr=null;net.role='';net.joinAttempt=null;if(c)try{c.close()}catch(e){};if(p)try{p.destroy()}catch(e){};closeOnlineDialog();net.err=m;mode=1;state='net'}
-async function joinGame(code){code=(code||'').trim().toUpperCase();if(!/^[A-Z0-9]{6}$/.test(code)){net.err='Zadej šestimístný kód místnosti.';return}
+async function joinGame(code){code=(code||'').trim();if(!/^[A-Za-z]{6}$/.test(code)){net.err='Kód musí mít šest písmen.';return}
  const attempt={cancelled:false};net.joinAttempt=attempt;net.err='Připojuji se…';openOnlineDialog('code',code,'Připojuji se k online službě…');let p;try{p=await makePeer()}catch(e){if(attempt.cancelled)return;net.joinAttempt=null;const m='Nelze se připojit k online službě ('+(e.type||e.message||'chyba')+').';net.err=m;openOnlineDialog('code',code,m);return}
  if(attempt.cancelled){p.destroy();return}net.joinAttempt=null;
- const c=p.connect('fb-'+code.toLowerCase(),{reliable:true}),timer=setTimeout(()=>joinFail(p,'Hru s tímto kódem se nepodařilo najít.'),12000);
+ const c=p.connect('fb-'+code,{reliable:true}),timer=setTimeout(()=>joinFail(p,'Hru s tímto kódem se nepodařilo najít.'),12000);
   Object.assign(net,{peer:p,role:'client',room:true,gr:c,code,me:'',myName:'',pick:null,roster:Array(8).fill(null),order:[],conns:new Map(),latestHost:null,lastHostAt:0,seen:{},Q:[],lastQ:-1,q:[],qs:0,miss:0,lastIn:'',err:''});
  p.on('open',id=>{if(net.peer===p)net.me=id});
  c.on('open',()=>{clearTimeout(timer);openOnlineDialog('name')});
@@ -430,7 +430,7 @@ function drawNet(){
   g.fillText('Bez účtu: založ místnost a předej kód druhému hráči.',CX,150);
   if(!window.Peer){g.fillStyle='#ffb4a8';g.fillText('Online knihovna se nenačetla. Zkontroluj připojení a obnov stránku.',CX,205)}
   else{
-   btn(340,235,600,105,'1. Založit online místnost',netHost,false,'#22b14c','vygeneruje se šestimístný kód');
+   btn(340,235,600,105,'1. Založit online místnost',netHost,false,'#22b14c','vygeneruje se kód ze 6 písmen');
    btn(340,370,600,105,'2. Přidat se do hry',promptJoin,false,'#2878b8','zadej kód od hostitele')}
   if(net.err){g.fillStyle='#ffb4a8';g.font='20px sans-serif';g.fillText(net.err,CX,690)}
   btn(20,20,120,42,'‹ Zpět',()=>{state='mode'})}
@@ -506,7 +506,7 @@ img.src = './míč.webp'
 const codes=new Set(KS.flatMap(k=>[...k.mv,k.prev,k.next,...k.pass,k.shoot,...k.lob,k.pause]));
 const isGo=c=>c==='Enter'||c==='NumpadEnter'||c==='Space';
 addEventListener('keydown',e=>{
-  if(!onlineDialog.hidden&&onlineDialog.contains(e.target))return;
+  if(!onlineDialog.hidden)return;
  const c=e.code;if(!codes.has(c))return;e.preventDefault();if(e.repeat)return;K[c]=1;
  if(state==='mode'){if(c==='ArrowUp')mode=mode<=1?3:mode-1;else if(c==='ArrowDown')mode=mode>=3?1:mode+1;else if(isGo(c)){if(mode===3)netOpen();else state='menu'}return}
  if(state==='net'){if(c==='Escape')state='mode';return}
