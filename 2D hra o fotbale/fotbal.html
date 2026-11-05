@@ -34,7 +34,9 @@ canvas{display:block;width:100%;height:100%;object-fit:contain}
   <p id="onlineMessage"></p>
  </form>
 </div>
-<script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
 <script>
 const cv=document.getElementById('c'),g=cv.getContext('2d');
 // rozměry (logické jednotky 1280x720, plátno se škáluje na celou obrazovku)
@@ -57,7 +59,21 @@ for(let t=0;t<2;t++)FORM.forEach((f,n)=>P.push({t,n,x:0,y:0,vx:0,vy:0,r:n?PR:11,
 let state='mode',sel=1,setupT=0,rs=null,mode=1,hTeam=0,swapOpt=true,swapOn=true,over=false,lastP=null,kk=0,mustPass=null,SPM=10/3,phase=0,gmin=0,brk=0,swapped=false,et=false,gt=0,scorer=0,duelT=0,msg='',spr=null,pen=null;
 const sd=t=>swapped?1-t:t,pl=(t,n)=>P[t*4+n],cur=t=>isAI[t]?null:pl(t,act[t]),dirOf=t=>sd(t)?-1:1;
 const IN=[[0,0,0,0],[0,0,0,0]],INP=Array.from({length:8},()=>[0,0,0,0]),STC=['play','pause','goal','out','break','pen','end'];   // IN[tým], INP[hráč]: směrová tlačítka
-const net={role:'',room:true,peer:null,gr:null,code:'',me:'',myName:'',pick:null,roster:Array(8).fill(null),order:[],conns:new Map(),latestHost:null,lastHostAt:0,joinAttempt:null,seen:{},seq:0,Q:[],lastQ:-1,lastPub:0,lastIn:'',q:[],qs:0,miss:0,err:'',cfg:{sel:1,swp:1}}; // PeerJS propojuje hráče bez jejich účtů
+const net={role:'',roomRef:null,playerRef:null,playersRef:null,slotsRef:null,viewRef:null,playersCb:null,slotsCb:null,viewCb:null,user:null,db:null,code:'',me:'',myName:'',pick:null,roster:Array(8).fill(null),roomPlayers:{},slots:{},latestHost:null,lastHostAt:0,seen:{},seq:0,Q:[],lastQ:-1,lastPub:0,lastIn:'',q:[],qs:0,miss:0,err:'',cfg:{sel:1,swp:1}};
+const firebaseConfig={apiKey:'AIzaSyA2Pd7w2PBsiDUHUghOPRuDPuJwrW9LXLUQ',authDomain:'d-hra-o-fotbale---firebase.firebaseapp.com',databaseURL:'https://d-hra-o-fotbale---firebase-default-rtdb.europe-west1.firebasedatabase.app',projectId:'d-hra-o-fotbale---firebase',appId:'1:1066178478151:web:825ddfe288464eb6f33162'};
+let firebaseApp=null;
+function firebaseAvailable(){return !!(window.firebase&&firebase.apps&&firebase.auth&&firebase.database)}
+async function ensureFirebase(){if(!firebaseAvailable())throw new Error('Firebase knihovna se nenačetla. Obnov stránku a zkus to znovu.');
+ if(!firebaseApp)firebaseApp=firebase.apps.length?firebase.app():firebase.initializeApp(firebaseConfig);
+ net.db=firebase.database();const auth=firebase.auth();if(!auth.currentUser){try{const credential=await auth.signInAnonymously();net.user=credential.user}catch(e){if(e.code==='auth/operation-not-allowed')throw new Error('Ve Firebase zapni anonymní přihlášení: Authentication → Sign-in method → Anonymous.');throw e}}
+ net.user=net.user||auth.currentUser;if(!net.user)throw new Error('Anonymní přihlášení se nedokončilo.');net.me=net.user.uid;return net.user}
+function firebaseError(e){if(e&&(e.code==='PERMISSION_DENIED'||e.code==='permission-denied'))return 'Firebase odmítla přístup. Zkontroluj pravidla Realtime Database.';if(e&&e.code==='auth/operation-not-allowed')return 'Ve Firebase zapni anonymní přihlášení v Authentication → Sign-in method → Anonymous.';return e&&e.message||'neznámá chyba'}
+function attachFirebaseListeners(){
+ net.playersRef=net.roomRef.child('players');net.slotsRef=net.roomRef.child('slots');net.viewRef=net.roomRef.child('view');
+ net.playersCb=s=>{net.roomPlayers=s.val()||{}};net.playersRef.on('value',net.playersCb,e=>{net.err=firebaseError(e);if(net.role==='client')joinFail(net.err)});
+ net.slotsCb=s=>{net.slots=s.val()||{}};net.slotsRef.on('value',net.slotsCb,e=>{net.err=firebaseError(e)});
+ if(net.role==='client'){net.viewCb=s=>{const v=s.val();if(!v){if(net.role==='client')joinFail('Místnost byla ukončena nebo už neexistuje.');return}net.latestHost=v;net.lastHostAt=performance.now();if(v.players)net.roster=v.players;if(v.cfg)net.cfg=v.cfg};net.viewRef.on('value',net.viewCb,e=>joinFail(firebaseError(e)))}
+}
 const onlineDialog=document.getElementById('onlineDialog'),onlineForm=document.getElementById('onlineCard'),onlineValue=document.getElementById('onlineValue');let onlineStage='';
 function openOnlineDialog(stage,value='',message=''){onlineStage=stage;onlineDialog.hidden=false;onlineValue.value=value;onlineValue.maxLength=stage==='code'?6:18;onlineValue.style.textTransform='none';
  document.getElementById('onlineTitle').textContent=stage==='code'?'Připojit se do hry':'Tvoje přezdívka';
@@ -66,8 +82,8 @@ function openOnlineDialog(stage,value='',message=''){onlineStage=stage;onlineDia
 function closeOnlineDialog(){onlineDialog.hidden=true;onlineStage=''}
 onlineValue.addEventListener('input',()=>{if(onlineStage==='code')onlineValue.value=onlineValue.value.replace(/[^A-Za-z]/g,'').slice(0,6)});
 onlineForm.addEventListener('submit',e=>{e.preventDefault();const value=onlineValue.value.trim();if(onlineStage==='code'){if(!/^[A-Za-z]{6}$/.test(value)){document.getElementById('onlineMessage').textContent='Kód musí mít šest písmen.';return}joinGame(value);return}
- if(onlineStage==='name'){const name=value.slice(0,18);if(!name){document.getElementById('onlineMessage').textContent='Zadej přezdívku.';return}net.myName=name;mode=3;isAI[0]=isAI[1]=false;state='lobby';sendData(net.gr,{type:'presence',p:{name,pick:null}});closeOnlineDialog()}});
-document.getElementById('onlineCancel').addEventListener('click',()=>{if(net.joinAttempt){net.joinAttempt.cancelled=true;net.joinAttempt=null;closeOnlineDialog()}else if(net.role==='client'&&net.peer)joinFail(net.peer,'Připojení bylo zrušeno.');else closeOnlineDialog()});
+ if(onlineStage==='name'){const name=value.slice(0,18);if(!name){document.getElementById('onlineMessage').textContent='Zadej přezdívku.';return}net.myName=name;mode=3;isAI[0]=isAI[1]=false;state='lobby';if(net.playerRef)net.playerRef.update({name}).catch(e=>{net.err=firebaseError(e)});closeOnlineDialog()}});
+document.getElementById('onlineCancel').addEventListener('click',()=>{if(net.role==='client')joinFail('Připojení bylo zrušeno.');else closeOnlineDialog()});
 const playerIndex=(t,n)=>t*4+n,playerOwner=(t,n)=>net.roster[playerIndex(t,n)]&&net.roster[playerIndex(t,n)].peer||'';
 const humanPlayer=p=>mode===3?!!playerOwner(p.t,p.n):cur(p.t)===p;
 
@@ -237,9 +253,9 @@ function lk(t){   // části klávesnice (0 levá, 1 pravá) tohoto zařízení,
  if(isAI[t])return[];
  if(mode<3)return[sd(t)];
  return[]}
-function syncIn(){if(mode===3){for(const I of INP)I[0]=I[1]=I[2]=I[3]=0;
+ function syncIn(){if(mode===3){for(const I of INP)I[0]=I[1]=I[2]=I[3]=0;
   if(net.role==='host'&&net.pick){const[t,n]=net.pick,m=KS[0].mv,I=INP[playerIndex(t,n)];for(let i=0;i<4;i++)I[i]=K[m[i]]|0}
-  for(const r of net.conns.values()){const p=r.presence.pick,ip=r.presence.inp;if(!p||!ip||p.t<0||p.t>1||p.n<0||p.n>3)continue;const I=INP[playerIndex(p.t,p.n)],b=ip.k|0;for(let i=0;i<4;i++)I[i]=b>>i&1}return}
+  for(const r of Object.values(net.roomPlayers||{})){const p=r.pick,ip=r.input;if(!p||!ip||p.t<0||p.t>1||p.n<0||p.n>3)continue;const I=INP[playerIndex(p.t,p.n)],b=ip.k|0;for(let i=0;i<4;i++)I[i]=b>>i&1}return}
  for(let t=0;t<2;t++){const I=IN[t];I[0]=I[1]=I[2]=I[3]=0;for(const ks of lk(t)){const m=KS[ks].mv;for(let i=0;i<4;i++)I[i]|=K[m[i]]|0}}}
 function doAct(t,a,lob,playerN=null){   // online hráč ovládá jednu zvolenou pozici; offline režim může přepínat
  if(isAI[t])return;
@@ -262,63 +278,54 @@ function keysAct(c){if(mode===3){if(!net.pick)return;const[t,n]=net.pick,k=KS[0]
  if(c===k.next)a='n';else if(c===k.prev)a='p';else if(c===k.shoot)a='s';else{const i=k.pass.indexOf(c);if(i>=0)a='d'+i}
  if(a)sendAct(t,a,k.lob.some(l=>K[l])?1:0)}}
 function myPeer(){return net.me}
-function sendData(c,data){try{if(c&&c.open)c.send(data)}catch(e){}}
-function peers(){return[...net.conns.values()].filter(p=>p.conn.open).map(p=>({peer:p.peer,kind:'viewer',presence:p.presence,isMe:false}))}
-function choosePlayer(t,n){const ix=playerIndex(t,n),who=net.roster[ix];if(who&&who.peer!==net.me)return;net.pick=net.pick&&net.pick[0]===t&&net.pick[1]===n?null:[t,n];
- if(net.role==='client')sendData(net.gr,{type:'presence',p:{name:net.myName,pick:net.pick?{t:net.pick[0],n:net.pick[1]}:null}})}
+function choosePlayer(t,n){if(!net.playerRef||!net.roomRef)return;const uid=net.me,key=String(playerIndex(t,n)),slotRef=net.roomRef.child('slots/'+key),old=net.pick?String(playerIndex(net.pick[0],net.pick[1])):null;
+ if(old===key){slotRef.transaction(v=>v===uid?null:v,(e,ok)=>{if(e){net.err=firebaseError(e);return}if(ok){net.pick=null;net.playerRef.update({pick:null}).catch(x=>net.err=firebaseError(x))}});return}
+ slotRef.transaction(v=>v===null||v===uid?uid:undefined,(e,ok)=>{if(e){net.err=firebaseError(e);return}if(!ok){net.err='Tuto pozici si právě vybral jiný hráč.';return}
+  if(old&&old!==key)net.roomRef.child('slots/'+old).transaction(v=>v===uid?null:v);
+  net.pick=[t,n];net.err='';net.playerRef.update({pick:{t,n}}).catch(x=>net.err=firebaseError(x))})}
 function netOpen(){state='net';net.err=''}
 function roomCode(){const a='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz';let c='';for(let i=0;i<6;i++)c+=a[Math.random()*a.length|0];return c}
-function makePeer(id){return new Promise((resolve,reject)=>{if(!window.Peer){reject(new Error('Knihovna online hry se nenačetla'));return}
- const p=new Peer(id),timer=setTimeout(()=>{p.destroy();reject(new Error('Online služba neodpovídá'))},12000);let done=false;
- p.on('open',()=>{if(done)return;done=true;clearTimeout(timer);resolve(p)});
- p.on('error',e=>{if(done)return;done=true;clearTimeout(timer);p.destroy();reject(e)})})}
-function acceptConn(c){if(net.conns.size>=8){c.on('open',()=>{sendData(c,{type:'error',text:'Místnost je plná'});c.close()});return}
- const r={peer:c.peer,conn:c,presence:{w:[0,0]}};net.conns.set(c.peer,r);
- c.on('data',m=>{if(!m||typeof m!=='object')return;if(m.type==='presence'&&m.p)r.presence={...r.presence,...m.p};else if(m.type==='input'&&m.inp)r.presence.inp=m.inp});
- const gone=()=>{net.conns.delete(c.peer);net.order=net.order.filter(x=>x!==c.peer)};c.on('close',gone);c.on('error',gone)}
-async function netHost(){net.err='';if(!window.Peer){net.err='Online knihovna se nenačetla. Obnov stránku a zkus to znovu.';return}
-  let p=null,code='';for(let i=0;i<5&&!p;i++){code=roomCode();try{p=await makePeer('fb-'+code)}catch(e){if(e.type!=='unavailable-id'){net.err='Místnost se nepodařilo vytvořit ('+(e.type||e.message||'chyba')+').';return}}}
- if(!p){net.err='Nepodařilo se vytvořit jedinečný kód. Zkus to znovu.';return}
-  Object.assign(net,{peer:p,role:'host',room:true,gr:null,code,me:p.id,myName:'Hostitel',pick:null,roster:Array(8).fill(null),order:[],conns:new Map(),seen:{},Q:[],lastQ:-1,q:[],qs:0,miss:0,lastIn:'',err:''});
-  p.on('connection',acceptConn);p.on('error',e=>{if(net.peer===p)net.err='Síťová chyba: '+(e.type||'neznámá chyba')});mode=3;isAI[0]=isAI[1]=false;state='lobby'}
-function joinFail(p,m){if(net.peer!==p)return;const c=net.gr;net.peer=null;net.gr=null;net.role='';net.joinAttempt=null;if(c)try{c.close()}catch(e){};if(p)try{p.destroy()}catch(e){};closeOnlineDialog();net.err=m;mode=1;state='net'}
+async function netHost(){net.err='';try{await ensureFirebase();let code='',roomRef=null,created=false;
+ for(let i=0;i<8&&!created;i++){code=roomCode();roomRef=net.db.ref('rooms/'+code);const init={host:net.me,slots:{},players:{[net.me]:{name:'Hostitel',pick:null,input:{k:0,q:[]}}},view:{h:1,players:Array(8).fill(null),cfg:{sel,swp:swapOpt?1:0},m:0,s:null}};
+  await new Promise((resolve,reject)=>roomRef.transaction(v=>v===null?init:undefined,(e,ok)=>{if(e)reject(e);else{created=ok;resolve()}}))}
+ if(!created)throw new Error('Nepodařilo se vytvořit volný kód místnosti.');
+ Object.assign(net,{role:'host',roomRef,playerRef:roomRef.child('players/'+net.me),code,myName:'Hostitel',pick:null,roster:Array(8).fill(null),roomPlayers:{},slots:{},latestHost:null,lastHostAt:0,seen:{},Q:[],lastQ:-1,lastPub:0,q:[],qs:0,lastIn:'',err:''});
+ await roomRef.onDisconnect().remove();attachFirebaseListeners();mode=3;isAI[0]=isAI[1]=false;state='lobby'
+ }catch(e){net.err=firebaseError(e)}}
+async function joinFail(m){const room=net.roomRef,uid=net.me;if(room&&net.role==='client'&&uid){try{await room.child('players/'+uid).remove();const slots=await room.child('slots').once('value');for(const[k,v]of Object.entries(slots.val()||{}))if(v===uid)await room.child('slots/'+k).remove()}catch(e){}}
+ if(room){if(net.playersCb)room.child('players').off('value',net.playersCb);if(net.slotsCb)room.child('slots').off('value',net.slotsCb);if(net.viewCb)room.child('view').off('value',net.viewCb)}
+ Object.assign(net,{role:'',roomRef:null,playerRef:null,playersRef:null,slotsRef:null,viewRef:null,playersCb:null,slotsCb:null,viewCb:null,pick:null,latestHost:null,roomPlayers:{},slots:{},Q:[],lastQ:-1});closeOnlineDialog();net.err=m;mode=1;state='net'}
 async function joinGame(code){code=(code||'').trim();if(!/^[A-Za-z]{6}$/.test(code)){net.err='Kód musí mít šest písmen.';return}
- const attempt={cancelled:false};net.joinAttempt=attempt;net.err='Připojuji se…';openOnlineDialog('code',code,'Připojuji se k online službě…');let p;try{p=await makePeer()}catch(e){if(attempt.cancelled)return;net.joinAttempt=null;const m='Nelze se připojit k online službě ('+(e.type||e.message||'chyba')+').';net.err=m;openOnlineDialog('code',code,m);return}
- if(attempt.cancelled){p.destroy();return}net.joinAttempt=null;
- const c=p.connect('fb-'+code,{reliable:true}),timer=setTimeout(()=>joinFail(p,'Hru s tímto kódem se nepodařilo najít.'),12000);
-  Object.assign(net,{peer:p,role:'client',room:true,gr:c,code,me:'',myName:'',pick:null,roster:Array(8).fill(null),order:[],conns:new Map(),latestHost:null,lastHostAt:0,seen:{},Q:[],lastQ:-1,q:[],qs:0,miss:0,lastIn:'',err:''});
- p.on('open',id=>{if(net.peer===p)net.me=id});
- c.on('open',()=>{clearTimeout(timer);openOnlineDialog('name')});
- c.on('data',m=>{if(!m)return;if(m.type==='host'){net.latestHost=m.data;net.lastHostAt=performance.now()}else if(m.type==='error'){joinFail(p,m.text||'Do místnosti se nelze připojit.')}});
- c.on('close',()=>{clearTimeout(timer);if(net.role==='client'&&net.peer===p)joinFail(p,'Spojení s hostitelem bylo přerušeno.')});
- c.on('error',e=>{clearTimeout(timer);if(net.role==='client'&&net.peer===p){const m=e.type==='peer-unavailable'?'Místnost neexistuje nebo hostitel odešel.':'Spojení se nepodařilo ('+(e.type||'chyba')+').';joinFail(p,m)}});
- p.on('error',e=>{if(net.role==='client'&&net.peer===p)joinFail(p,'Online služba oznámila chybu: '+(e.type||'neznámá chyba'))})}
+ net.err='Připojuji se…';openOnlineDialog('code',code,'Připojuji se k Firebase…');try{await ensureFirebase();const roomRef=net.db.ref('rooms/'+code),s=await roomRef.once('value');if(!s.exists()||!s.val()||!s.val().host)throw new Error('Místnost s tímto kódem neexistuje nebo hostitel odešel.');if(Object.keys(s.val().players||{}).length>=8)throw new Error('Místnost už je plná.');
+ Object.assign(net,{role:'client',roomRef,playerRef:roomRef.child('players/'+net.me),code,myName:'',pick:null,roster:s.val().view?.players||Array(8).fill(null),roomPlayers:{},slots:s.val().slots||{},latestHost:null,lastHostAt:0,seen:{},Q:[],lastQ:-1,q:[],qs:0,lastIn:'',err:''});
+ await net.playerRef.set({name:'Hráč',pick:null,input:{k:0,q:[]}});await net.playerRef.onDisconnect().remove();attachFirebaseListeners();mode=3;isAI[0]=isAI[1]=false;openOnlineDialog('name')
+ }catch(e){const m=firebaseError(e);if(net.role==='client')await joinFail(m);net.err=m;openOnlineDialog('code',code,m)}}
 function promptJoin(){openOnlineDialog('code')}
-function netLeave(m){const p=net.peer,gr=net.gr;net.peer=null;net.gr=null;net.role='';closeOnlineDialog();if(gr)try{gr.close()}catch(e){};for(const r of net.conns.values())try{r.conn.close()}catch(e){};net.conns.clear();if(p)try{p.destroy()}catch(e){}
- net.pick=null;net.roster=Array(8).fill(null);net.Q=[];net.latestHost=null;net.err=m||'';mode=1;isAI[0]=isAI[1]=false;state='mode'}
+async function netLeave(m){const room=net.roomRef,role=net.role,uid=net.me;
+ if(room){try{if(role==='host')await room.remove();else if(role==='client'&&uid){await room.child('players/'+uid).remove();const s=await room.child('slots').once('value');for(const[k,v]of Object.entries(s.val()||{}))if(v===uid)await room.child('slots/'+k).remove()}}catch(e){net.err=firebaseError(e)}
+  if(net.playersCb)room.child('players').off('value',net.playersCb);if(net.slotsCb)room.child('slots').off('value',net.slotsCb);if(net.viewCb)room.child('view').off('value',net.viewCb)}
+ Object.assign(net,{role:'',roomRef:null,playerRef:null,playersRef:null,slotsRef:null,viewRef:null,playersCb:null,slotsCb:null,viewCb:null,pick:null,roster:Array(8).fill(null),roomPlayers:{},slots:{},Q:[],latestHost:null,lastHostAt:0,err:m||net.err||''});closeOnlineDialog();mode=1;isAI[0]=isAI[1]=false;state='mode'}
 function netStart(){if(net.role==='host'&&net.me){mode=3;startMatch()}}
 function endGo(){if(mode===3){if(net.role==='host')state='lobby'}else state='mode'}
 function netQ(t,a,l,n){net.q.push([++net.qs,t,a,l,n]);if(net.q.length>10)net.q.shift();pushIn()}
-function pushIn(){if(!net.gr||!net.pick)return;const m=KS[0].mv;let k=0;for(let i=0;i<4;i++)k|=(K[m[i]]|0)<<i;
- const o={k,q:net.q},j=JSON.stringify(o);if(j!==net.lastIn){net.lastIn=j;sendData(net.gr,{type:'input',inp:o})}}
-function hostPoll(){const ps=peers();for(const p of ps)if(!net.order.includes(p.peer))net.order.push(p.peer);const labs=ps.map(p=>p.peer);net.order=net.order.filter(l=>labs.includes(l));
- if(state==='lobby'){const roster=Array(8).fill(null);if(net.pick)roster[playerIndex(net.pick[0],net.pick[1])]={peer:net.me,name:net.myName};
-  for(const l of net.order){const q=ps.find(p=>p.peer===l),pick=q&&q.presence.pick;if(!pick||pick.t<0||pick.t>1||pick.n<0||pick.n>3)continue;const i=playerIndex(pick.t,pick.n);if(!roster[i])roster[i]={peer:l,name:String(q.presence.name||'Hráč').slice(0,18)}}
-  net.roster=roster;for(let t=0;t<2;t++)isAI[t]=!roster.slice(t*4,t*4+4).some(Boolean)}
- else if(mode===3){for(let i=0;i<net.roster.length;i++){const owner=net.roster[i]&&net.roster[i].peer;if(!owner||owner===net.me)continue;const r=ps.find(q=>q.peer===owner);if(!r){net.roster[i]=null;continue}
-   const ip=r.presence.inp;if(!ip)continue;const t=i>>2,n=i%4;
-   for(const e of ip.q||[]){if(!Array.isArray(e)||e[1]!==t||e[4]!==n||!/^(s|d[0-3])$/.test(e[2]))continue;const key=owner+t+n;if(e[0]>(net.seen[key]||0)){net.seen[key]=e[0];doAct(t,e[2],e[3]?1:0,n)}}}
-  for(let t=0;t<2;t++)isAI[t]=!net.roster.slice(t*4,t*4+4).some(Boolean)}}
+function pushIn(){if(!net.playerRef||!net.pick)return;const m=KS[0].mv;let k=0;for(let i=0;i<4;i++)k|=(K[m[i]]|0)<<i;
+ const o={k,q:net.q},j=JSON.stringify(o);if(j!==net.lastIn){net.lastIn=j;net.playerRef.child('input').set(o).catch(e=>net.err=firebaseError(e))}}
+function hostPoll(){if(!net.roomRef)return;const ps=net.roomPlayers||{},slots=net.slots||{},roster=Array(8).fill(null);
+ for(const[k,uid]of Object.entries(slots)){const i=+k,p=ps[uid];if(i<0||i>7)continue;if(!p){if(!net.cleaningSlots)net.cleaningSlots=new Set();if(!net.cleaningSlots.has(k)){net.cleaningSlots.add(k);net.roomRef.child('slots/'+k).remove().catch(e=>net.err=firebaseError(e)).finally(()=>net.cleaningSlots.delete(k))}continue}roster[i]={peer:uid,name:String(p.name||'Hráč').slice(0,18)}}
+ net.roster=roster;for(let t=0;t<2;t++)isAI[t]=!roster.slice(t*4,t*4+4).some(Boolean);
+ if(state!=='lobby'&&mode===3){for(let i=0;i<net.roster.length;i++){const owner=net.roster[i]&&net.roster[i].peer;if(!owner||owner===net.me)continue;const r=ps[owner];if(!r){net.roster[i]=null;continue}
+   const ip=r.input;if(!ip)continue;const t=i>>2,n=i%4;
+   for(const e of ip.q||[]){if(!Array.isArray(e)||e[1]!==t||e[4]!==n||!/^(s|d[0-3])$/.test(e[2]))continue;const key=owner+t+n;if(e[0]>(net.seen[key]||0)){net.seen[key]=e[0];doAct(t,e[2],e[3]?1:0,n)}}}}}
 function snap(){const r1=v=>Math.round(v*10)/10;   // snímek zápasu pro klienty
  return{q:++net.seq,st:STC.indexOf(state),ph:phase,gm:+gmin.toFixed(3),br:+brk.toFixed(3),ov:over?1:0,sc:[S[0],S[1]],sw:swapped?1:0,so:swapOn?1:0,
   g:[r1(GD),r1(GM),r1(GB)],p:P.flatMap(p=>[r1(p.x),r1(p.y),p.on?1:0]),
   b:[r1(B.x),r1(B.y),B.air?+Math.min(1,B.air.t/B.air.T).toFixed(3):-1],
   ac:[act[0],act[1]],ai:[isAI[0]?1:0,isAI[1]?1:0],rs:rs?[r1(rs.p.x),r1(rs.p.y),rs.p.r]:0,su:+setupT.toFixed(2),mp:mustPass?mustPass.t:-1,ms:msg,sr:scorer,
   pn:pen?{u:pen.turn,s:pen.s,n:pen.n,a:pen.a===null?-1:pen.t>0?pen.a:9,b:pen.b===null?-1:pen.t>0?pen.b:9,t:+pen.t.toFixed(2),r:pen.res,w:pen.w}:0}}
-function hostPub(now){if(!net.peer)return;let data;
+function hostPub(now){if(!net.roomRef)return;let data;
  if(state==='lobby'){if(now-net.lastPub<=100)return;net.lastPub=now;data={h:1,players:net.roster,cfg:{sel,swp:swapOpt?1:0},m:0,s:null}}
- else if(STC.includes(state)){if(now-net.lastPub<=50)return;net.lastPub=now;data={h:1,players:net.roster,m:1,s:snap()}}else return;
- for(const r of net.conns.values())sendData(r.conn,{type:'host',data})}
+ else if(STC.includes(state)){if(now-net.lastPub<=50)return;net.lastPub=now;data={h:1,players:net.roster,cfg:{sel,swp:swapOpt?1:0},m:1,s:snap()}}else return;
+ net.roomRef.child('view').set(data).catch(e=>net.err=firebaseError(e))}
 function applyView(){const Q=net.Q;if(!Q.length)return;   // klient: vykreslí zpožděnou interpolaci mezi snímky hostitele
  const rt=performance.now()-100;let ia=-1;for(let i=0;i<Q.length;i++)if(Q[i].t<=rt)ia=i;
  const a=Q[Math.max(0,ia)],b=Q[Math.min(Q.length-1,ia+1)],f=a===b?1:Math.max(0,Math.min(1,(rt-a.t)/(b.t-a.t))),sa=a.s,sb=b.s;
@@ -329,9 +336,9 @@ function applyView(){const Q=net.Q;if(!Q.length)return;   // klient: vykreslí z
  const bx0=sa.b[0],by0=sa.b[1],bx1=sb.b[0],by1=sb.b[1],jb=Math.hypot(bx1-bx0,by1-by0)>150?1:f;B.x=bx0+(bx1-bx0)*jb;B.y=by0+(by1-by0)*jb;B.air=sb.b[2]>=0?{t:sb.b[2],T:1}:null;
  rs=sb.rs?{p:{x:sb.rs[0],y:sb.rs[1],r:sb.rs[2]}}:null;
  pen=sb.pn?{turn:sb.pn.u,s:sb.pn.s,n:sb.pn.n,a:sb.pn.a<0?null:sb.pn.a,b:sb.pn.b<0?null:sb.pn.b,t:sb.pn.t,res:sb.pn.r,w:sb.pn.w}:null}
-function clientTick(){if(!net.gr)return;const hp=net.latestHost;
+function clientTick(){if(!net.roomRef)return;const hp=net.latestHost;
  if(!hp){if(performance.now()-net.lastHostAt>12000&&net.lastHostAt)netLeave('Hostitel odešel');return}
- net.me=net.peer&&net.peer.id||net.me;
+ net.me=net.user&&net.user.uid||net.me;
  if(hp.players)net.roster=hp.players;if(hp.cfg)net.cfg=hp.cfg;
  if(hp.m===1&&hp.s){if(hp.s.q!==net.lastQ){net.lastQ=hp.s.q;net.Q.push({t:performance.now(),s:hp.s});if(net.Q.length>10)net.Q.shift()}applyView();pushIn()}
  else if(state!=='lobby'){state='lobby';net.Q.length=0;net.lastQ=-1}}
@@ -428,7 +435,7 @@ function drawNet(){
   g.font='bold 52px sans-serif';g.fillText('Online hra',CX,90);
   g.font='20px sans-serif';
   g.fillText('Bez účtu: založ místnost a předej kód druhému hráči.',CX,150);
-  if(!window.Peer){g.fillStyle='#ffb4a8';g.fillText('Online knihovna se nenačetla. Zkontroluj připojení a obnov stránku.',CX,205)}
+  if(!firebaseAvailable()){g.fillStyle='#ffb4a8';g.fillText('Firebase knihovna se nenačetla. Zkontroluj připojení a obnov stránku.',CX,205)}
   else{
    btn(340,235,600,105,'1. Založit online místnost',netHost,false,'#22b14c','vygeneruje se kód ze 6 písmen');
    btn(340,370,600,105,'2. Přidat se do hry',promptJoin,false,'#2878b8','zadej kód od hostitele')}
