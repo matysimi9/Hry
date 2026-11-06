@@ -60,7 +60,7 @@ let state='mode',sel=1,setupT=0,rs=null,mode=1,hTeam=0,swapOpt=true,swapOn=true,
 const sd=t=>swapped?1-t:t,pl=(t,n)=>P[t*4+n],cur=t=>isAI[t]?null:pl(t,act[t]),dirOf=t=>sd(t)?-1:1;
 const IN=[[0,0,0,0],[0,0,0,0]],INP=Array.from({length:8},()=>[0,0,0,0]),STC=['play','pause','goal','out','break','pen','end'];   // IN[tým], INP[hráč]: směrová tlačítka
 const net={role:'',roomRef:null,playerRef:null,playersRef:null,slotsRef:null,viewRef:null,playersCb:null,slotsCb:null,viewCb:null,user:null,db:null,code:'',me:'',myName:'',pick:null,roster:Array(8).fill(null),roomPlayers:{},slots:{},latestHost:null,lastHostAt:0,seen:{},seq:0,Q:[],lastQ:-1,lastPub:0,lastIn:'',q:[],qs:0,miss:0,err:'',cfg:{sel:1,swp:1}};
-const firebaseConfig={apiKey:'AIzaSyA2Pd7w2PBsiDUHUghOPRuDPuJwrW9LXLUQ',authDomain:'d-hra-o-fotbale---firebase.firebaseapp.com',databaseURL:'https://d-hra-o-fotbale---firebase-default-rtdb.europe-west1.firebasedatabase.app',projectId:'d-hra-o-fotbale---firebase',appId:'1:1066178478151:web:825ddfe288464eb6f33162'};
+const firebaseConfig={apiKey:'AIzaSyA2Pd7w2PBsiDUHUghOPRuDPuJwrW9LX1UQ',authDomain:'d-hra-o-fotbale---firebase.firebaseapp.com',databaseURL:'https://d-hra-o-fotbale---firebase-default-rtdb.europe-west1.firebasedatabase.app',projectId:'d-hra-o-fotbale---firebase',appId:'1:1066178478151:web:825ddfe288464eb6f33162'};
 let firebaseApp=null;
 function firebaseAvailable(){return !!(window.firebase&&firebase.apps&&firebase.auth&&firebase.database)}
 async function ensureFirebase(){if(!firebaseAvailable())throw new Error('Firebase knihovna se nenačetla. Obnov stránku a zkus to znovu.');
