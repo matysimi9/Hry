@@ -208,7 +208,7 @@ function sub(dt,live){
    if(!humanPlayer(p)&&p.n===0)aiKeeper(p,dt);
    else if(!humanPlayer(p))aiPlayer(p,dt);
   else{let dx=0,dy=0;
-    if(!((setupT>0||mustPass===p)&&B.own===p)){const I=mode===3?(teamHumanCount(p.t)===1?IN[p.t]:INP[playerIndex(p.t,p.n)]):IN[p.t];dx=I[3]-I[2];dy=I[1]-I[0]}
+    if(!((setupT>0||mustPass===p)&&B.own===p)){const I=mode===3?INP[playerIndex(p.t,p.n)]:IN[p.t];dx=I[3]-I[2];dy=I[1]-I[0]}
    const l=Math.hypot(dx,dy);const sv=SPD*(B.own===p?.8:1);p.vx=l?dx/l*sv:0;p.vy=l?dy/l*sv:0;if(l){p.ax=dx/l;p.ay=dy/l}}
   p.x=Math.max(p.r,Math.min(W-p.r,p.x+p.vx*dt));p.y=Math.max(120+p.r,Math.min(H-p.r,p.y+p.vy*dt))}
  for(let i=0;i<8;i++)for(let j=i+1;j<8;j++){const a=P[i],b=P[j];if(!a.on||!b.on)continue;
@@ -255,8 +255,8 @@ function lk(t){   // části klávesnice (0 levá, 1 pravá) tohoto zařízení,
  if(mode<3)return[sd(t)];
  return[]}
  function syncIn(){if(mode===3){for(const I of INP)I[0]=I[1]=I[2]=I[3]=0;for(const I of IN)I[0]=I[1]=I[2]=I[3]=0;
-  if(net.role==='host'&&net.pick){const[t,n]=net.pick,m=KS[0].mv,I=teamHumanCount(t)===1?IN[t]:INP[playerIndex(t,n)];for(let i=0;i<4;i++)I[i]=K[m[i]]|0}
-  for(const r of Object.values(net.roomPlayers||{})){const p=r.pick,ip=r.input;if(!p||!ip||p.t<0||p.t>1||p.n<0||p.n>3)continue;const I=teamHumanCount(p.t)===1?IN[p.t]:INP[playerIndex(p.t,p.n)],b=ip.k|0;for(let i=0;i<4;i++)I[i]=b>>i&1}return}
+  if(net.role==='host'&&net.pick){const[t,n]=net.pick,m=KS[0].mv,index=teamHumanCount(t)===1?playerIndex(t,act[t]):playerIndex(t,n),I=INP[index];for(let i=0;i<4;i++)I[i]=K[m[i]]|0}
+  for(const r of Object.values(net.roomPlayers||{})){const p=r.pick,ip=r.input;if(!p||!ip||p.t<0||p.t>1||p.n<0||p.n>3)continue;const index=teamHumanCount(p.t)===1?playerIndex(p.t,act[p.t]):playerIndex(p.t,p.n),I=INP[index],b=ip.k|0;for(let i=0;i<4;i++)I[i]=b>>i&1}return}
  for(let t=0;t<2;t++){const I=IN[t];I[0]=I[1]=I[2]=I[3]=0;for(const ks of lk(t)){const m=KS[ks].mv;for(let i=0;i<4;i++)I[i]|=K[m[i]]|0}}}
 function doAct(t,a,lob,playerN=null){   // online hráč ovládá jednu zvolenou pozici; offline režim může přepínat
  if(isAI[t])return;
