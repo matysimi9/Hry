@@ -254,8 +254,9 @@ function lk(t){   // části klávesnice (0 levá, 1 pravá) tohoto zařízení,
  if(isAI[t])return[];
  if(mode<3)return[sd(t)];
  return[]}
+function onlineMoveBits(){let bits=0;for(let i=0;i<4;i++)bits|=((K[KS[0].mv[i]]|0)|(K[KS[1].mv[i]]|0))<<i;return bits}
  function syncIn(){if(mode===3){for(const I of INP)I[0]=I[1]=I[2]=I[3]=0;for(const I of IN)I[0]=I[1]=I[2]=I[3]=0;
-  if(net.role==='host'&&net.pick){const[t,n]=net.pick,m=KS[0].mv,index=teamHumanCount(t)===1?playerIndex(t,act[t]):playerIndex(t,n),I=INP[index];for(let i=0;i<4;i++)I[i]=K[m[i]]|0}
+  if(net.role==='host'&&net.pick){const[t,n]=net.pick,index=teamHumanCount(t)===1?playerIndex(t,act[t]):playerIndex(t,n),I=INP[index],bits=onlineMoveBits();for(let i=0;i<4;i++)I[i]=bits>>i&1}
   for(const r of Object.values(net.roomPlayers||{})){const p=r.pick,ip=r.input;if(!p||!ip||p.t<0||p.t>1||p.n<0||p.n>3)continue;const index=teamHumanCount(p.t)===1?playerIndex(p.t,act[p.t]):playerIndex(p.t,p.n),I=INP[index],b=ip.k|0;for(let i=0;i<4;i++)I[i]=b>>i&1}return}
  for(let t=0;t<2;t++){const I=IN[t];I[0]=I[1]=I[2]=I[3]=0;for(const ks of lk(t)){const m=KS[ks].mv;for(let i=0;i<4;i++)I[i]|=K[m[i]]|0}}}
 function doAct(t,a,lob,playerN=null){   // online hráč ovládá jednu zvolenou pozici; offline režim může přepínat
@@ -309,7 +310,7 @@ async function netLeave(m){const room=net.roomRef,role=net.role,uid=net.me;
 function netStart(){if(net.role==='host'&&net.me){mode=3;startMatch()}}
 function endGo(){if(mode===3){if(net.role==='host')state='lobby'}else state='mode'}
 function netQ(t,a,l,n){const s=++net.qs;net.q['e'+s]={s,t,a,l,n:n===null?-1:n};const keys=Object.keys(net.q).sort((x,y)=>Number(x.slice(1))-Number(y.slice(1)));while(keys.length>10)delete net.q[keys.shift()];pushIn()}
-function pushIn(){if(!net.playerRef||!net.pick)return;const m=KS[0].mv;let k=0;for(let i=0;i<4;i++)k|=(K[m[i]]|0)<<i;
+function pushIn(){if(!net.playerRef||!net.pick)return;const k=onlineMoveBits();
  const o={k,q:net.q},j=JSON.stringify(o);if(j!==net.lastIn){net.lastIn=j;net.playerRef.child('input').set(o).catch(e=>net.err=firebaseError(e))}}
 function hostPoll(){if(!net.roomRef)return;const ps=net.roomPlayers||{},slots=net.slots||{},roster=Array(8).fill(null);
  for(const[k,uid]of Object.entries(slots)){const i=+k,p=ps[uid];if(i<0||i>7)continue;if(!p){if(!net.cleaningSlots)net.cleaningSlots=new Set();if(!net.cleaningSlots.has(k)){net.cleaningSlots.add(k);net.roomRef.child('slots/'+k).remove().catch(e=>net.err=firebaseError(e)).finally(()=>net.cleaningSlots.delete(k))}continue}roster[i]={peer:uid,name:String(p.name||'Hráč').slice(0,18)}}
