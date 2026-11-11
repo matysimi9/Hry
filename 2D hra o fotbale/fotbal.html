@@ -454,17 +454,17 @@ function drawLobby(){
   const host=net.role==='host';
   g.font='bold 42px sans-serif';g.fillText('Online místnost · '+net.code,CX,62);
   g.font='20px sans-serif';g.fillText(host?'Pošli kód spoluhráčům a nech tuto stránku otevřenou:':'Připojeno jako '+(net.myName||'hráč')+' · vyber si volnou pozici:',CX,98);
-  const cm=effectiveControlMode();if(host||cm==='free'){g.textAlign='left';g.font='17px sans-serif';g.fillStyle='#fff';g.fillText('Ovládání:',24,57);g.textAlign='center'}
-  if(host){radio(36,81,'Podle strany',net.controlMode==='side',()=>setRoomControl('side'));radio(176,81,'Libovolně',net.controlMode==='free',()=>setRoomControl('free'));
-   if(cm==='free'){g.textAlign='left';g.font='15px sans-serif';g.fillStyle='#cfe8d6';g.fillText('Moje:',24,109);g.textAlign='center';radio(78,103,'Levá',net.myControl==='left',()=>setMyControl('left'));radio(153,103,'Podle strany',net.myControl==='side',()=>setMyControl('side'));radio(270,103,'Pravá',net.myControl==='right',()=>setMyControl('right'))}}
-  else if(cm==='free'){radio(36,81,'Levá',net.myControl==='left',()=>setMyControl('left'));radio(111,81,'Podle strany',net.myControl==='side',()=>setMyControl('side'));radio(229,81,'Pravá',net.myControl==='right',()=>setMyControl('right'))}
+  const cm=effectiveControlMode();if(host||cm==='free'){g.textAlign='left';g.font='17px sans-serif';g.fillStyle='#fff';g.fillText('Ovládání:',950,43);g.textAlign='center'}
+  if(host){radio(950,72,'Podle strany',net.controlMode==='side',()=>setRoomControl('side'));radio(1090,72,'Libovolně',net.controlMode==='free',()=>setRoomControl('free'));
+   if(cm==='free'){g.textAlign='left';g.font='15px sans-serif';g.fillStyle='#cfe8d6';g.fillText('Moje:',950,106);g.textAlign='center';radio(1000,101,'Levá',net.myControl==='left',()=>setMyControl('left'));radio(1070,101,'Podle strany',net.myControl==='side',()=>setMyControl('side'));radio(1190,101,'Pravá',net.myControl==='right',()=>setMyControl('right'))}}
+  else if(cm==='free'){radio(950,76,'Levá',net.myControl==='left',()=>setMyControl('left'));radio(1025,76,'Podle strany',net.myControl==='side',()=>setMyControl('side'));radio(1160,76,'Pravá',net.myControl==='right',()=>setMyControl('right'))}
   for(let t=0;t<2;t++){
    const x=t?675:105;g.fillStyle=T[t].col;g.fillRect(x,120,500,34);g.fillStyle=t?'#fff':'#111';g.font='bold 22px sans-serif';g.fillText(t?'Fialový tým':'Oranžový tým',x+250,145);
    for(let n=0;n<4;n++){const ix=playerIndex(t,n),r=net.roster[ix],mine=!!r&&r.peer===net.me,label=n===0?'Brankář':'Hráč '+(n+1),who=r?r.name:'Volné místo';
     btn(x,160+n*54,500,48,label,()=>choosePlayer(t,n),mine,r?T[t].col:'rgba(255,255,255,.13)',who)}
   }
   g.fillStyle='#cfe8d6';g.font='16px sans-serif';g.fillText('Vyber jedno volné místo. Každý hráč ovládá svou pozici; všichni vidí obsazení průběžně.',CX,390);
-  g.fillText('Ovládání se řídí volbou v levém horním rohu.',CX,413);
+  g.fillText('Ovládání se řídí volbou v pravém horním rohu.',CX,413);
   if(host){
    g.fillStyle='#fff';g.font='20px sans-serif';g.fillText('Rychlost zápasu:',CX,442);
    OPT.forEach((s,i)=>btn(i%2?660:220,453+(i>>1)*36,400,32,s,()=>{sel=i},i===sel));
