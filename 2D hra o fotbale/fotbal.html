@@ -59,7 +59,7 @@ for(let t=0;t<2;t++)FORM.forEach((f,n)=>P.push({t,n,x:0,y:0,vx:0,vy:0,r:n?PR:11,
 let state='mode',sel=1,setupT=0,rs=null,mode=1,hTeam=0,swapOpt=true,swapOn=true,over=false,lastP=null,kk=0,mustPass=null,SPM=10/3,phase=0,gmin=0,brk=0,swapped=false,et=false,gt=0,scorer=0,duelT=0,msg='',spr=null,pen=null;
 const sd=t=>swapped?1-t:t,pl=(t,n)=>P[t*4+n],cur=t=>isAI[t]?null:pl(t,act[t]),dirOf=t=>sd(t)?-1:1;
 const IN=[[0,0,0,0],[0,0,0,0]],INP=Array.from({length:8},()=>[0,0,0,0]),STC=['play','pause','goal','out','break','pen','end'];   // IN[tým], INP[hráč]: směrová tlačítka
-const net={role:'',roomRef:null,playerRef:null,playersRef:null,slotsRef:null,viewRef:null,playersCb:null,slotsCb:null,viewCb:null,user:null,db:null,code:'',me:'',myName:'',pick:null,roster:Array(8).fill(null),roomPlayers:{},slots:{},latestHost:null,lastHostAt:0,seen:{},seq:0,Q:[],lastQ:-1,lastPub:0,lastIn:'',q:{},qs:0,miss:0,err:'',cfg:{sel:1,swp:1}};
+const net={role:'',roomRef:null,playerRef:null,playersRef:null,slotsRef:null,viewRef:null,playersCb:null,slotsCb:null,viewCb:null,user:null,db:null,code:'',me:'',myName:'',pick:null,roster:Array(8).fill(null),roomPlayers:{},slots:{},latestHost:null,lastHostAt:0,seen:{},seq:0,Q:[],lastQ:-1,lastPub:0,lastIn:'',q:{},qs:0,miss:0,err:'',cfg:{sel:1,swp:1,control:'side'},controlMode:'side',myControl:'side'};
 const firebaseConfig={apiKey:'AIzaSyA2Pd7w2PBsiDUHugpORuDPuJwrW9lX1UQ',authDomain:'d-hra-o-fotbale---firebase.firebaseapp.com',databaseURL:'https://d-hra-o-fotbale---firebase-default-rtdb.europe-west1.firebasedatabase.app',projectId:'d-hra-o-fotbale---firebase',appId:'1:1066178478151:web:825ddfe288464eb6f33162'};
 let firebaseApp=null;
 function firebaseAvailable(){return !!(window.firebase&&firebase.apps&&firebase.auth&&firebase.database)}
@@ -87,6 +87,10 @@ document.getElementById('onlineCancel').addEventListener('click',()=>{if(net.rol
 const playerIndex=(t,n)=>t*4+n,playerOwner=(t,n)=>net.roster[playerIndex(t,n)]&&net.roster[playerIndex(t,n)].peer||'';
 const teamHumanCount=t=>net.roster.slice(t*4,t*4+4).filter(Boolean).length;
 const humanPlayer=p=>mode===3?(teamHumanCount(p.t)===1?cur(p.t)===p:!!playerOwner(p.t,p.n)):cur(p.t)===p;
+function effectiveControlMode(){return net.role==='host'?net.controlMode:(net.cfg&&net.cfg.control==='free'?'free':'side')}
+function controlIndex(t){const mode=effectiveControlMode(),choice=mode==='free'?net.myControl:'side';return choice==='left'?0:choice==='right'?1:sd(t)}
+function setRoomControl(mode){if(net.role!=='host')return;net.controlMode=mode==='free'?'free':'side'}
+function setMyControl(choice){net.myControl=['left','side','right'].includes(choice)?choice:'side';if(net.playerRef)net.playerRef.child('control').set(net.myControl).catch(e=>net.err=firebaseError(e))}
 
 function reset(kt=kk){
  for(const p of P){const f=FORM[p.n],s=sd(p.t);p.x=FX0+(s?1-f[0]:f[0])*FW;p.y=FY0+(s?1-f[1]:f[1])*FH;p.vx=p.vy=0;p.cd=0;p.ax=s?-1:1;p.ay=0}
@@ -254,9 +258,9 @@ function lk(t){   // části klávesnice (0 levá, 1 pravá) tohoto zařízení,
  if(isAI[t])return[];
  if(mode<3)return[sd(t)];
  return[]}
-function onlineMoveBits(){let bits=0;for(let i=0;i<4;i++)bits|=((K[KS[0].mv[i]]|0)|(K[KS[1].mv[i]]|0))<<i;return bits}
+function onlineMoveBits(t){let bits=0;const m=KS[controlIndex(t)].mv;for(let i=0;i<4;i++)bits|=(K[m[i]]|0)<<i;return bits}
  function syncIn(){if(mode===3){for(const I of INP)I[0]=I[1]=I[2]=I[3]=0;for(const I of IN)I[0]=I[1]=I[2]=I[3]=0;
-  if(net.role==='host'&&net.pick){const[t,n]=net.pick,index=teamHumanCount(t)===1?playerIndex(t,act[t]):playerIndex(t,n),I=INP[index],bits=onlineMoveBits();for(let i=0;i<4;i++)I[i]=bits>>i&1}
+ if(net.role==='host'&&net.pick){const[t,n]=net.pick,index=teamHumanCount(t)===1?playerIndex(t,act[t]):playerIndex(t,n),I=INP[index],bits=onlineMoveBits(t);for(let i=0;i<4;i++)I[i]=bits>>i&1}
   for(const[uid,r]of Object.entries(net.roomPlayers||{})){if(uid===net.me)continue;const p=r.pick,ip=r.input;if(!p||!ip||p.t<0||p.t>1||p.n<0||p.n>3)continue;const index=teamHumanCount(p.t)===1?playerIndex(p.t,act[p.t]):playerIndex(p.t,p.n),I=INP[index],b=ip.k|0;for(let i=0;i<4;i++)I[i]=b>>i&1}return}
  for(let t=0;t<2;t++){const I=IN[t];I[0]=I[1]=I[2]=I[3]=0;for(const ks of lk(t)){const m=KS[ks].mv;for(let i=0;i<4;i++)I[i]|=K[m[i]]|0}}}
 function doAct(t,a,lob,playerN=null){   // online hráč ovládá jednu zvolenou pozici; offline režim může přepínat
@@ -275,7 +279,7 @@ function penPick(t,i){if(pen.t>0||i<0||i>2)return;
  if(t===pen.turn){if(pen.a===null)pen.a=i}else if(pen.b===null)pen.b=i;
  if(pen.a!==null&&pen.b!==null){pen.t=2.4;pen.res=pen.a===pen.b?0:1}}   // stejná část = chyceno, jinak gól
 function sendAct(t,a,l,n=null){if(net.role==='client')netQ(t,a,l,n);else doAct(t,a,l,n)}
-function keysAct(c){if(mode===3){if(!net.pick)return;const[t,n]=net.pick,k=KS[sd(t)],solo=teamHumanCount(t)===1;let a=null;if(solo&&c===k.next)a='n';else if(solo&&c===k.prev)a='p';else if(c===k.shoot)a='s';else{const i=k.pass.indexOf(c);if(i>=0)a='d'+i}if(a)sendAct(t,a,k.lob.some(l=>K[l])?1:0,solo?null:n);return}
+function keysAct(c){if(mode===3){if(!net.pick)return;const[t,n]=net.pick,k=KS[controlIndex(t)],solo=teamHumanCount(t)===1;let a=null;if(solo&&c===k.next)a='n';else if(solo&&c===k.prev)a='p';else if(c===k.shoot)a='s';else{const i=k.pass.indexOf(c);if(i>=0)a='d'+i}if(a)sendAct(t,a,k.lob.some(l=>K[l])?1:0,solo?null:n);return}
  for(let t=0;t<2;t++)for(const ks of lk(t)){const k=KS[ks];let a=null;
  if(c===k.next)a='n';else if(c===k.prev)a='p';else if(c===k.shoot)a='s';else{const i=k.pass.indexOf(c);if(i>=0)a='d'+i}
  if(a)sendAct(t,a,k.lob.some(l=>K[l])?1:0)}}
@@ -288,10 +292,10 @@ function choosePlayer(t,n){if(!net.playerRef||!net.roomRef)return;const uid=net.
 function netOpen(){state='net';net.err=''}
 function roomCode(){const a='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz';let c='';for(let i=0;i<6;i++)c+=a[Math.random()*a.length|0];return c}
 async function netHost(){net.err='';try{await ensureFirebase();let code='',roomRef=null,created=false;
- for(let i=0;i<8&&!created;i++){code=roomCode();roomRef=net.db.ref('rooms/'+code);const init={host:net.me,slots:{},players:{[net.me]:{name:'Hostitel',pick:null,input:{k:0,q:{}}}},view:{h:1,players:Array(8).fill(null),cfg:{sel,swp:swapOpt?1:0},m:0,s:null}};
+ for(let i=0;i<8&&!created;i++){code=roomCode();roomRef=net.db.ref('rooms/'+code);const init={host:net.me,slots:{},players:{[net.me]:{name:'Hostitel',pick:null,control:'side',input:{k:0,q:{}}}},view:{h:1,players:Array(8).fill(null),cfg:{sel,swp:swapOpt?1:0,control:'side'},m:0,s:null}};
   await new Promise((resolve,reject)=>roomRef.transaction(v=>v===null?init:undefined,(e,ok)=>{if(e)reject(e);else{created=ok;resolve()}}))}
  if(!created)throw new Error('Nepodařilo se vytvořit volný kód místnosti.');
- Object.assign(net,{role:'host',roomRef,playerRef:roomRef.child('players/'+net.me),code,myName:'Hostitel',pick:null,roster:Array(8).fill(null),roomPlayers:{},slots:{},latestHost:null,lastHostAt:0,seen:{},Q:[],lastQ:-1,lastPub:0,q:{},qs:0,lastIn:'',err:''});
+ Object.assign(net,{role:'host',roomRef,playerRef:roomRef.child('players/'+net.me),code,myName:'Hostitel',pick:null,roster:Array(8).fill(null),roomPlayers:{},slots:{},latestHost:null,lastHostAt:0,seen:{},Q:[],lastQ:-1,lastPub:0,q:{},qs:0,lastIn:'',err:'',cfg:{sel,swp:swapOpt?1:0,control:'side'},controlMode:'side',myControl:'side'});
  await roomRef.onDisconnect().remove();attachFirebaseListeners();mode=3;isAI[0]=isAI[1]=false;state='lobby'
  }catch(e){net.err=firebaseError(e)}}
 async function joinFail(m){const room=net.roomRef,uid=net.me;if(room&&net.role==='client'&&uid){try{await room.child('players/'+uid).remove();const slots=await room.child('slots').once('value');for(const[k,v]of Object.entries(slots.val()||{}))if(v===uid)await room.child('slots/'+k).remove()}catch(e){}}
@@ -299,8 +303,9 @@ async function joinFail(m){const room=net.roomRef,uid=net.me;if(room&&net.role==
  Object.assign(net,{role:'',roomRef:null,playerRef:null,playersRef:null,slotsRef:null,viewRef:null,playersCb:null,slotsCb:null,viewCb:null,pick:null,latestHost:null,roomPlayers:{},slots:{},Q:[],lastQ:-1});closeOnlineDialog();net.err=m;mode=1;state='net'}
 async function joinGame(code){code=(code||'').trim();if(!/^[A-Za-z]{6}$/.test(code)){net.err='Kód musí mít šest písmen.';return}
  net.err='Připojuji se…';openOnlineDialog('code',code,'Připojuji se k Firebase…');try{await ensureFirebase();const roomRef=net.db.ref('rooms/'+code),s=await roomRef.once('value');if(!s.exists()||!s.val()||!s.val().host)throw new Error('Místnost s tímto kódem neexistuje nebo hostitel odešel.');if(Object.keys(s.val().players||{}).length>=8)throw new Error('Místnost už je plná.');
- Object.assign(net,{role:'client',roomRef,playerRef:roomRef.child('players/'+net.me),code,myName:'',pick:null,roster:s.val().view?.players||Array(8).fill(null),roomPlayers:{},slots:s.val().slots||{},latestHost:null,lastHostAt:0,seen:{},Q:[],lastQ:-1,q:{},qs:0,lastIn:'',err:''});
- await net.playerRef.set({name:'Hráč',pick:null,input:{k:0,q:{}}});await net.playerRef.onDisconnect().remove();attachFirebaseListeners();mode=3;isAI[0]=isAI[1]=false;openOnlineDialog('name')
+ const cfg=s.val().view?.cfg||{sel:1,swp:1,control:'side'};
+ Object.assign(net,{role:'client',roomRef,playerRef:roomRef.child('players/'+net.me),code,myName:'',pick:null,roster:s.val().view?.players||Array(8).fill(null),roomPlayers:{},slots:s.val().slots||{},latestHost:null,lastHostAt:0,seen:{},Q:[],lastQ:-1,q:{},qs:0,lastIn:'',err:'',cfg,controlMode:cfg.control==='free'?'free':'side',myControl:'side'});
+ await net.playerRef.set({name:'Hráč',pick:null,control:'side',input:{k:0,q:{}}});await net.playerRef.onDisconnect().remove();attachFirebaseListeners();mode=3;isAI[0]=isAI[1]=false;openOnlineDialog('name')
  }catch(e){const m=firebaseError(e);if(net.role==='client')await joinFail(m);net.err=m;openOnlineDialog('code',code,m)}}
 function promptJoin(){openOnlineDialog('code')}
 async function netLeave(m){const room=net.roomRef,role=net.role,uid=net.me;
@@ -310,7 +315,7 @@ async function netLeave(m){const room=net.roomRef,role=net.role,uid=net.me;
 function netStart(){if(net.role==='host'&&net.me){mode=3;startMatch()}}
 function endGo(){if(mode===3){if(net.role==='host')state='lobby'}else state='mode'}
 function netQ(t,a,l,n){const s=++net.qs;net.q['e'+s]={s,t,a,l,n:n===null?-1:n};const keys=Object.keys(net.q).sort((x,y)=>Number(x.slice(1))-Number(y.slice(1)));while(keys.length>10)delete net.q[keys.shift()];pushIn()}
-function pushIn(){if(!net.playerRef||!net.pick)return;const k=onlineMoveBits();
+function pushIn(){if(!net.playerRef||!net.pick)return;const[t]=net.pick,k=onlineMoveBits(t);
  const o={k,q:net.q},j=JSON.stringify(o);if(j!==net.lastIn){net.lastIn=j;net.playerRef.child('input').set(o).catch(e=>net.err=firebaseError(e))}}
 function hostPoll(){if(!net.roomRef)return;const ps=net.roomPlayers||{},slots=net.slots||{},roster=Array(8).fill(null);
  for(const[k,uid]of Object.entries(slots)){const i=+k,p=ps[uid];if(i<0||i>7)continue;if(!p){if(!net.cleaningSlots)net.cleaningSlots=new Set();if(!net.cleaningSlots.has(k)){net.cleaningSlots.add(k);net.roomRef.child('slots/'+k).remove().catch(e=>net.err=firebaseError(e)).finally(()=>net.cleaningSlots.delete(k))}continue}roster[i]={peer:uid,name:String(p.name||'Hráč').slice(0,18)}}
@@ -325,8 +330,8 @@ function snap(){const r1=v=>Math.round(v*10)/10;   // snímek zápasu pro klient
   ac:[act[0],act[1]],ai:[isAI[0]?1:0,isAI[1]?1:0],rs:rs?[r1(rs.p.x),r1(rs.p.y),rs.p.r]:0,su:+setupT.toFixed(2),mp:mustPass?mustPass.t:-1,ms:msg,sr:scorer,
   pn:pen?{u:pen.turn,s:pen.s,n:pen.n,a:pen.a===null?-1:pen.t>0?pen.a:9,b:pen.b===null?-1:pen.t>0?pen.b:9,t:+pen.t.toFixed(2),r:pen.res,w:pen.w}:0}}
 function hostPub(now){if(!net.roomRef)return;let data;
- if(state==='lobby'){if(now-net.lastPub<=100)return;net.lastPub=now;data={h:1,players:net.roster,cfg:{sel,swp:swapOpt?1:0},m:0,s:null}}
- else if(STC.includes(state)){if(now-net.lastPub<=50)return;net.lastPub=now;data={h:1,players:net.roster,cfg:{sel,swp:swapOpt?1:0},m:1,s:snap()}}else return;
+ if(state==='lobby'){if(now-net.lastPub<=100)return;net.lastPub=now;data={h:1,players:net.roster,cfg:{sel,swp:swapOpt?1:0,control:net.controlMode},m:0,s:null}}
+ else if(STC.includes(state)){if(now-net.lastPub<=50)return;net.lastPub=now;data={h:1,players:net.roster,cfg:{sel,swp:swapOpt?1:0,control:net.controlMode},m:1,s:snap()}}else return;
  net.roomRef.child('view').set(data).catch(e=>net.err=firebaseError(e))}
 function applyView(){const Q=net.Q;if(!Q.length)return;   // klient: vykreslí zpožděnou interpolaci mezi snímky hostitele
  const rt=performance.now()-100;let ia=-1;for(let i=0;i<Q.length;i++)if(Q[i].t<=rt)ia=i;
@@ -425,6 +430,7 @@ function btn(x,y,w,h,label,fn,on,col,sub){btns.push({x,y,w,h,fn});
  g.strokeStyle=on?'#fff':'rgba(255,255,255,.35)';g.lineWidth=on?5:2;g.strokeRect(x,y,w,h);
  g.fillStyle=col===T[0].col?'#000':'#fff';g.font='bold '+(h>70?36:22)+'px sans-serif';g.fillText(label,x+w/2,y+h*(sub?.48:.66));
  if(sub){g.font='18px sans-serif';g.fillText(sub,x+w/2,y+h*.8)}}
+function radio(x,y,label,selected,fn){const align=g.textAlign;g.textAlign='left';g.font='17px sans-serif';const w=g.measureText(label).width+30;btns.push({x:x-10,y:y-14,w,h:28,fn});g.beginPath();g.arc(x,y,8,0,Math.PI*2);g.strokeStyle='rgba(255,255,255,.9)';g.lineWidth=2;g.stroke();if(selected){g.beginPath();g.arc(x,y,4,0,Math.PI*2);g.fillStyle='#22b14c';g.fill()}g.fillStyle='#fff';g.fillText(label,x+15,y+6);g.textAlign=align}
  function drawMode(){
   g.fillStyle='rgba(8,24,14,.94)';g.fillRect(0,0,W,H);g.fillStyle='#fff';
   g.font='bold 64px sans-serif';g.fillText('FOTBAL 4 na 4',CX,150);
@@ -448,13 +454,17 @@ function drawLobby(){
   const host=net.role==='host';
   g.font='bold 42px sans-serif';g.fillText('Online místnost · '+net.code,CX,62);
   g.font='20px sans-serif';g.fillText(host?'Pošli kód spoluhráčům a nech tuto stránku otevřenou:':'Připojeno jako '+(net.myName||'hráč')+' · vyber si volnou pozici:',CX,98);
+  const cm=effectiveControlMode();if(host||cm==='free'){g.textAlign='left';g.font='17px sans-serif';g.fillStyle='#fff';g.fillText('Ovládání:',24,57);g.textAlign='center'}
+  if(host){radio(36,81,'Podle strany',net.controlMode==='side',()=>setRoomControl('side'));radio(176,81,'Libovolně',net.controlMode==='free',()=>setRoomControl('free'));
+   if(cm==='free'){g.textAlign='left';g.font='15px sans-serif';g.fillStyle='#cfe8d6';g.fillText('Moje:',24,109);g.textAlign='center';radio(78,103,'Levá',net.myControl==='left',()=>setMyControl('left'));radio(153,103,'Podle strany',net.myControl==='side',()=>setMyControl('side'));radio(270,103,'Pravá',net.myControl==='right',()=>setMyControl('right'))}}
+  else if(cm==='free'){radio(36,81,'Levá',net.myControl==='left',()=>setMyControl('left'));radio(111,81,'Podle strany',net.myControl==='side',()=>setMyControl('side'));radio(229,81,'Pravá',net.myControl==='right',()=>setMyControl('right'))}
   for(let t=0;t<2;t++){
    const x=t?675:105;g.fillStyle=T[t].col;g.fillRect(x,120,500,34);g.fillStyle=t?'#fff':'#111';g.font='bold 22px sans-serif';g.fillText(t?'Fialový tým':'Oranžový tým',x+250,145);
    for(let n=0;n<4;n++){const ix=playerIndex(t,n),r=net.roster[ix],mine=!!r&&r.peer===net.me,label=n===0?'Brankář':'Hráč '+(n+1),who=r?r.name:'Volné místo';
     btn(x,160+n*54,500,48,label,()=>choosePlayer(t,n),mine,r?T[t].col:'rgba(255,255,255,.13)',who)}
   }
   g.fillStyle='#cfe8d6';g.font='16px sans-serif';g.fillText('Vyber jedno volné místo. Každý hráč ovládá svou pozici; všichni vidí obsazení průběžně.',CX,390);
-  g.fillText('Ovládání: I J K L pohyb · 1–4 přihrávka · mezerník střela · Tab lob.',CX,413);
+  g.fillText('Ovládání se řídí volbou v levém horním rohu.',CX,413);
   if(host){
    g.fillStyle='#fff';g.font='20px sans-serif';g.fillText('Rychlost zápasu:',CX,442);
    OPT.forEach((s,i)=>btn(i%2?660:220,453+(i>>1)*36,400,32,s,()=>{sel=i},i===sel));
