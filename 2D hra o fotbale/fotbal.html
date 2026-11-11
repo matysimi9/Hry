@@ -257,7 +257,7 @@ function lk(t){   // části klávesnice (0 levá, 1 pravá) tohoto zařízení,
 function onlineMoveBits(t){let bits=0;const m=KS[sd(t)].mv;for(let i=0;i<4;i++)bits|=(K[m[i]]|0)<<i;return bits}
  function syncIn(){if(mode===3){for(const I of INP)I[0]=I[1]=I[2]=I[3]=0;for(const I of IN)I[0]=I[1]=I[2]=I[3]=0;
   if(net.role==='host'&&net.pick){const[t,n]=net.pick,index=teamHumanCount(t)===1?playerIndex(t,act[t]):playerIndex(t,n),I=INP[index],bits=onlineMoveBits(t);for(let i=0;i<4;i++)I[i]=bits>>i&1}
-  for(const r of Object.values(net.roomPlayers||{})){const p=r.pick,ip=r.input;if(!p||!ip||p.t<0||p.t>1||p.n<0||p.n>3)continue;const index=teamHumanCount(p.t)===1?playerIndex(p.t,act[p.t]):playerIndex(p.t,p.n),I=INP[index],b=ip.k|0;for(let i=0;i<4;i++)I[i]=b>>i&1}return}
+  for(const[uid,r]of Object.entries(net.roomPlayers||{})){if(uid===net.me)continue;const p=r.pick,ip=r.input;if(!p||!ip||p.t<0||p.t>1||p.n<0||p.n>3)continue;const index=teamHumanCount(p.t)===1?playerIndex(p.t,act[p.t]):playerIndex(p.t,p.n),I=INP[index],b=ip.k|0;for(let i=0;i<4;i++)I[i]=b>>i&1}return}
  for(let t=0;t<2;t++){const I=IN[t];I[0]=I[1]=I[2]=I[3]=0;for(const ks of lk(t)){const m=KS[ks].mv;for(let i=0;i<4;i++)I[i]|=K[m[i]]|0}}}
 function doAct(t,a,lob,playerN=null){   // online hráč ovládá jednu zvolenou pozici; offline režim může přepínat
  if(isAI[t])return;
