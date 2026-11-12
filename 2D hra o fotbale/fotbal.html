@@ -59,7 +59,7 @@ for(let t=0;t<2;t++)FORM.forEach((f,n)=>P.push({t,n,x:0,y:0,vx:0,vy:0,r:n?PR:11,
 let state='mode',sel=1,setupT=0,rs=null,mode=1,hTeam=0,swapOpt=true,swapOn=true,over=false,lastP=null,kk=0,mustPass=null,SPM=10/3,phase=0,gmin=0,brk=0,swapped=false,et=false,gt=0,scorer=0,duelT=0,msg='',spr=null,pen=null;
 const sd=t=>swapped?1-t:t,pl=(t,n)=>P[t*4+n],cur=t=>isAI[t]?null:pl(t,act[t]),dirOf=t=>sd(t)?-1:1;
 const IN=[[0,0,0,0],[0,0,0,0]],INP=Array.from({length:8},()=>[0,0,0,0]),STC=['play','pause','goal','out','break','pen','end'];   // IN[tým], INP[hráč]: směrová tlačítka
-const net={role:'',roomRef:null,playerRef:null,playersRef:null,slotsRef:null,viewRef:null,playersCb:null,slotsCb:null,viewCb:null,user:null,db:null,code:'',me:'',myName:'',pick:null,roster:Array(8).fill(null),roomPlayers:{},slots:{},latestHost:null,lastHostAt:0,seen:{},seq:0,Q:[],lastQ:-1,lastPub:0,lastIn:'',q:{},qs:0,miss:0,err:'',cfg:{sel:1,swp:1,control:'side'},controlMode:'side',myControl:'side'};
+const net={role:'',roomRef:null,playerRef:null,playersRef:null,slotsRef:null,viewRef:null,playersCb:null,slotsCb:null,viewCb:null,user:null,db:null,code:'',me:'',myName:'',pick:null,roster:Array(8).fill(null),roomPlayers:{},slots:{},latestHost:null,lastHostAt:0,seen:{},seq:0,Q:[],lastQ:-1,lastPub:0,lastIn:'',q:{},qs:0,miss:0,err:'',cfg:{sel:1,swp:1,control:'side'},controlMode:'side',myControl:'side',copyOkUntil:0};
 const firebaseConfig={apiKey:'AIzaSyA2Pd7w2PBsiDUHugpORuDPuJwrW9lX1UQ',authDomain:'d-hra-o-fotbale---firebase.firebaseapp.com',databaseURL:'https://d-hra-o-fotbale---firebase-default-rtdb.europe-west1.firebasedatabase.app',projectId:'d-hra-o-fotbale---firebase',appId:'1:1066178478151:web:825ddfe288464eb6f33162'};
 let firebaseApp=null;
 function firebaseAvailable(){return !!(window.firebase&&firebase.apps&&firebase.auth&&firebase.database)}
@@ -291,6 +291,10 @@ function choosePlayer(t,n){if(!net.playerRef||!net.roomRef)return;const uid=net.
   net.pick=[t,n];net.err='';net.playerRef.update({pick:{t,n}}).catch(x=>net.err=firebaseError(x))})}
 function netOpen(){state='net';net.err=''}
 function roomCode(){const a='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz';let c='';for(let i=0;i<6;i++)c+=a[Math.random()*a.length|0];return c}
+async function copyRoomCode(){if(net.role!=='host'||!net.code)return;let copied=false;
+ try{if(navigator.clipboard&&navigator.clipboard.writeText){await navigator.clipboard.writeText(net.code);copied=true}}catch(e){}
+ if(!copied){const field=document.createElement('textarea');field.value=net.code;field.setAttribute('readonly','');field.style.cssText='position:fixed;left:-1000px;top:0;opacity:0';document.body.appendChild(field);field.focus();field.select();try{copied=document.execCommand('copy')}catch(e){}field.remove()}
+ if(copied){net.copyOkUntil=performance.now()+2200;net.err=''}else net.err='Kód se nepodařilo zkopírovat. Zkus ho opsat z názvu místnosti.'}
 async function netHost(){net.err='';try{await ensureFirebase();let code='',roomRef=null,created=false;
  for(let i=0;i<8&&!created;i++){code=roomCode();roomRef=net.db.ref('rooms/'+code);const init={host:net.me,slots:{},players:{[net.me]:{name:'Hostitel',pick:null,control:'side',input:{k:0,q:{}}}},view:{h:1,players:Array(8).fill(null),cfg:{sel,swp:swapOpt?1:0,control:'side'},m:0,s:null}};
   await new Promise((resolve,reject)=>roomRef.transaction(v=>v===null?init:undefined,(e,ok)=>{if(e)reject(e);else{created=ok;resolve()}}))}
@@ -452,6 +456,7 @@ function drawNet(){
 function drawLobby(){
   g.fillStyle='rgba(8,24,14,.94)';g.fillRect(0,0,W,H);g.fillStyle='#fff';
   const host=net.role==='host';
+  if(host)btn(170,20,190,42,performance.now()<net.copyOkUntil?'Zkopírováno!':'Zkopírovat kód',copyRoomCode,false,'#2878b8');
   g.font='bold 42px sans-serif';g.fillText('Online místnost · '+net.code,CX,62);
   g.font='20px sans-serif';g.fillText(host?'Pošli kód spoluhráčům a nech tuto stránku otevřenou:':'Připojeno jako '+(net.myName||'hráč')+' · vyber si volnou pozici:',CX,98);
   const cm=effectiveControlMode();if(host||cm==='free'){g.textAlign='left';g.font='17px sans-serif';g.fillStyle='#fff';g.fillText('Ovládání:',950,43);g.textAlign='center'}
