@@ -10,7 +10,24 @@
 :root[data-theme="dark"]{--bg:#14181c}
 html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
 body{margin:0;height:100%;background:var(--bg)}
-canvas{display:block;width:100%;height:100%;object-fit:contain}
+body{overflow:hidden;touch-action:manipulation}
+canvas{position:fixed;inset:0;display:block;width:100vw;height:100vh;height:100dvh;object-fit:contain;object-position:center}
+#touchHud[hidden],#rotateNotice{display:none}
+#touchHud{position:fixed;inset:0;z-index:4;pointer-events:none;font:600 16px/1 system-ui,sans-serif;color:#fff;user-select:none;-webkit-user-select:none}
+.touchGroup{position:absolute;top:50%;display:flex;flex-direction:column;gap:clamp(5px,1.3vmin,10px);transform:translateY(-50%);pointer-events:auto}
+#passGroup{left:max(8px,env(safe-area-inset-left,0px))}
+#shotGroup{right:max(8px,env(safe-area-inset-right,0px))}
+.touchBtn{width:clamp(44px,12vmin,66px);height:clamp(44px,12vmin,66px);padding:0;border:2px solid #ffffffb8;border-radius:14px;background:#14231acc;color:#fff;font:700 clamp(18px,5vmin,26px)/1 system-ui,sans-serif;box-shadow:0 2px 8px #0008;touch-action:none;-webkit-tap-highlight-color:transparent}
+.touchBtn:active,.touchBtn.pressed{background:#22b14ce8;transform:scale(.96)}
+.touchBtn.action{width:clamp(58px,15vmin,84px);height:clamp(58px,15vmin,84px);font-size:clamp(14px,3.7vmin,20px)}
+#touchStick{position:absolute;left:max(12px,env(safe-area-inset-left,0px));bottom:max(12px,env(safe-area-inset-bottom,0px));width:clamp(76px,21vmin,126px);height:clamp(76px,21vmin,126px);border:2px solid #ffffff99;border-radius:50%;background:#14231a99;pointer-events:auto;touch-action:none}
+#stickKnob{position:absolute;left:50%;top:50%;width:42%;height:42%;border:2px solid #fff;border-radius:50%;background:#ffffffa6;transform:translate(-50%,-50%);pointer-events:none}
+#layoutToggle{position:absolute;left:50%;bottom:max(7px,env(safe-area-inset-bottom,0px));transform:translateX(-50%);padding:7px 10px;border:1px solid #ffffffb8;border-radius:10px;background:#14231acc;color:#fff;font:600 12px system-ui,sans-serif;pointer-events:auto;touch-action:manipulation}
+#touchHud.right-handed #passGroup{left:auto;right:max(8px,env(safe-area-inset-right,0px))}
+#touchHud.right-handed #shotGroup{right:auto;left:max(8px,env(safe-area-inset-left,0px))}
+#touchHud.right-handed #touchStick{left:auto;right:max(12px,env(safe-area-inset-right,0px))}
+#rotateNotice{position:fixed;inset:0;z-index:10;align-items:center;justify-content:center;padding:28px;background:#101b14;color:#fff;text-align:center;font:600 20px/1.45 system-ui,sans-serif}
+@media (orientation:portrait){html[data-touch-enabled="true"] #rotateNotice{display:flex}}
 #onlineDialog[hidden]{display:none}
 #onlineDialog{position:fixed;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.72);font:18px sans-serif;color:#fff}
 #onlineCard{width:min(480px,calc(100vw - 40px));padding:28px;background:#14231a;border:2px solid rgba(255,255,255,.65);border-radius:12px;box-shadow:0 12px 40px #0008}
@@ -25,6 +42,22 @@ canvas{display:block;width:100%;height:100%;object-fit:contain}
 </head>
 <body>
 <canvas id="c" width="1920" height="1080"></canvas>
+<div id="touchHud" hidden>
+ <div id="passGroup" class="touchGroup">
+  <button class="touchBtn" data-pass="0" aria-label="Přihrávka hráči 1">1</button>
+  <button class="touchBtn" data-pass="1" aria-label="Přihrávka hráči 2">2</button>
+  <button class="touchBtn" data-pass="2" aria-label="Přihrávka hráči 3">3</button>
+  <button class="touchBtn" data-pass="3" aria-label="Přihrávka hráči 4">4</button>
+  <button class="touchBtn action" data-lob aria-label="Drž pro lob">Lob</button>
+ </div>
+ <div id="shotGroup" class="touchGroup">
+  <button class="touchBtn action" data-shoot aria-label="Střela">Střela</button>
+  <button class="touchBtn action" data-lob aria-label="Drž pro lob">Lob</button>
+ </div>
+ <div id="touchStick" aria-label="Virtuální joystick"><div id="stickKnob"></div></div>
+ <button id="layoutToggle" type="button" aria-label="Zrcadlit rozložení tlačítek">↔ Rozložení</button>
+</div>
+<div id="rotateNotice">Otoč zařízení na šířku, aby se hřiště zobrazilo celé a zůstalo ve správném poměru stran.</div>
 <div id="onlineDialog" hidden>
  <form id="onlineCard">
   <h2 id="onlineTitle">Připojit se do hry</h2>
@@ -55,6 +88,7 @@ const KS=[ // [0] levá část klávesnice, [1] pravá část (klávesy podle fy
 {mv:['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'],prev:'Numpad5',next:'Numpad6',pass:['Numpad1','Numpad2','Numpad3','Numpad4'],shoot:'Numpad0',lob:['Enter','NumpadEnter'],pause:'Pause'}];
 const FORM=[[.2,.5],[.25,.25],[.25,.75],[.395,.5]];      // hráč 1 = brankář
 const P=[],act=[3,3],kLock=[false,false],isAI=[false,false],atkT=[0,0],S=[0,0],K={},B={x:CX,y:CY,vx:0,vy:0,own:null,air:null,last:0};
+const touchPointers=new Map();let touchMoveBits=0,touchLayout='left',stickPointer=null;
 for(let t=0;t<2;t++)FORM.forEach((f,n)=>P.push({t,n,x:0,y:0,vx:0,vy:0,r:n?PR:11,on:true,cd:0,ax:1,ay:0,hold:0}));
 let state='mode',sel=1,setupT=0,rs=null,mode=1,hTeam=0,swapOpt=true,swapOn=true,over=false,lastP=null,kk=0,mustPass=null,SPM=10/3,phase=0,gmin=0,brk=0,swapped=false,et=false,gt=0,scorer=0,duelT=0,msg='',spr=null,pen=null;
 const sd=t=>swapped?1-t:t,pl=(t,n)=>P[t*4+n],cur=t=>isAI[t]?null:pl(t,act[t]),dirOf=t=>sd(t)?-1:1;
@@ -258,11 +292,14 @@ function lk(t){   // části klávesnice (0 levá, 1 pravá) tohoto zařízení,
  if(isAI[t])return[];
  if(mode<3)return[sd(t)];
  return[]}
-function onlineMoveBits(t){let bits=0;const m=KS[controlIndex(t)].mv;for(let i=0;i<4;i++)bits|=(K[m[i]]|0)<<i;return bits}
+function touchTeam(){if(mode===3)return net.pick?net.pick[0]:-1;if(mode===1)return hTeam;return -1}
+function touchKeys(t){return KS[mode===3?controlIndex(t):sd(t)]}
+function lobHeld(k){return k.lob.some(l=>K[l]||[...touchPointers.values()].some(v=>v.lobCode===l))}
+function onlineMoveBits(t){let bits=0;const m=KS[controlIndex(t)].mv;for(let i=0;i<4;i++)bits|=(K[m[i]]|0)<<i;if(t===touchTeam())bits|=touchMoveBits;return bits}
  function syncIn(){if(mode===3){for(const I of INP)I[0]=I[1]=I[2]=I[3]=0;for(const I of IN)I[0]=I[1]=I[2]=I[3]=0;
  if(net.role==='host'&&net.pick){const[t,n]=net.pick,index=teamHumanCount(t)===1?playerIndex(t,act[t]):playerIndex(t,n),I=INP[index],bits=onlineMoveBits(t);for(let i=0;i<4;i++)I[i]=bits>>i&1}
   for(const[uid,r]of Object.entries(net.roomPlayers||{})){if(uid===net.me)continue;const p=r.pick,ip=r.input;if(!p||!ip||p.t<0||p.t>1||p.n<0||p.n>3)continue;const index=teamHumanCount(p.t)===1?playerIndex(p.t,act[p.t]):playerIndex(p.t,p.n),I=INP[index],b=ip.k|0;for(let i=0;i<4;i++)I[i]=b>>i&1}return}
- for(let t=0;t<2;t++){const I=IN[t];I[0]=I[1]=I[2]=I[3]=0;for(const ks of lk(t)){const m=KS[ks].mv;for(let i=0;i<4;i++)I[i]|=K[m[i]]|0}}}
+ for(let t=0;t<2;t++){const I=IN[t];I[0]=I[1]=I[2]=I[3]=0;for(const ks of lk(t)){const m=KS[ks].mv;for(let i=0;i<4;i++)I[i]|=K[m[i]]|0}if(t===touchTeam())for(let i=0;i<4;i++)I[i]|=touchMoveBits>>i&1}}
 function doAct(t,a,lob,playerN=null){   // online hráč ovládá jednu zvolenou pozici; offline režim může přepínat
  if(isAI[t])return;
  if(state==='pen'){if(a[0]==='d')penPick(t,+a[1]);return}
@@ -279,10 +316,10 @@ function penPick(t,i){if(pen.t>0||i<0||i>2)return;
  if(t===pen.turn){if(pen.a===null)pen.a=i}else if(pen.b===null)pen.b=i;
  if(pen.a!==null&&pen.b!==null){pen.t=2.4;pen.res=pen.a===pen.b?0:1}}   // stejná část = chyceno, jinak gól
 function sendAct(t,a,l,n=null){if(net.role==='client')netQ(t,a,l,n);else doAct(t,a,l,n)}
-function keysAct(c){if(mode===3){if(!net.pick)return;const[t,n]=net.pick,k=KS[controlIndex(t)],solo=teamHumanCount(t)===1;let a=null;if(solo&&c===k.next)a='n';else if(solo&&c===k.prev)a='p';else if(c===k.shoot)a='s';else{const i=k.pass.indexOf(c);if(i>=0)a='d'+i}if(a)sendAct(t,a,k.lob.some(l=>K[l])?1:0,solo?null:n);return}
+function keysAct(c){if(mode===3){if(!net.pick)return;const[t,n]=net.pick,k=KS[controlIndex(t)],solo=teamHumanCount(t)===1;let a=null;if(solo&&c===k.next)a='n';else if(solo&&c===k.prev)a='p';else if(c===k.shoot)a='s';else{const i=k.pass.indexOf(c);if(i>=0)a='d'+i}if(a)sendAct(t,a,lobHeld(k)?1:0,solo?null:n);return}
  for(let t=0;t<2;t++)for(const ks of lk(t)){const k=KS[ks];let a=null;
  if(c===k.next)a='n';else if(c===k.prev)a='p';else if(c===k.shoot)a='s';else{const i=k.pass.indexOf(c);if(i>=0)a='d'+i}
- if(a)sendAct(t,a,k.lob.some(l=>K[l])?1:0)}}
+ if(a)sendAct(t,a,lobHeld(k)?1:0)}}
 function myPeer(){return net.me}
 function choosePlayer(t,n){if(!net.playerRef||!net.roomRef)return;const uid=net.me,key=String(playerIndex(t,n)),slotRef=net.roomRef.child('slots/'+key),old=net.pick?String(playerIndex(net.pick[0],net.pick[1])):null;
  if(old===key){slotRef.transaction(v=>v===uid?null:v,(e,ok)=>{if(e){net.err=firebaseError(e);return}if(ok){net.pick=null;net.playerRef.update({pick:null}).catch(x=>net.err=firebaseError(x))}});return}
@@ -496,7 +533,7 @@ function drawSetup(){
  btn(340,540,600,100,'Začít zápas',startMatch,false,'#22b14c');
  btn(20,20,120,42,'‹ Zpět',()=>{state='menu'})}
 function draw(){
- g.setTransform(1.5,0,0,1.5,0,0);g.textAlign='center';btns.length=0;
+ updateTouchHud();g.setTransform(1.5,0,0,1.5,0,0);g.textAlign='center';btns.length=0;
  g.fillStyle='#fff';g.fillRect(0,0,W,H);
  if(state==='pen')drawPen();else drawPitch();
  hud();
@@ -528,6 +565,25 @@ img.src = './míč.webp'
 
 // ---------- ovládání ----------
 const codes=new Set(KS.flatMap(k=>[...k.mv,k.prev,k.next,...k.pass,k.shoot,...k.lob,k.pause]));
+const touchHudEl=document.getElementById('touchHud'),touchStickEl=document.getElementById('touchStick'),stickKnobEl=document.getElementById('stickKnob');
+const touchCapable=('ontouchstart'in window)||navigator.maxTouchPoints>0||!!(window.matchMedia&&matchMedia('(pointer: coarse)').matches);
+if(touchCapable)document.documentElement.dataset.touchEnabled='true';
+try{touchLayout=localStorage.getItem('fotbalTouchLayout')==='right'?'right':'left'}catch(e){}
+function updateTouchHud(){const active=touchCapable&&(state==='play'||state==='pen')&&(mode!==3||!!net.pick);if(!active&&touchHudEl&&!touchHudEl.hidden)clearTouchControls();if(touchHudEl){touchHudEl.hidden=!active;touchHudEl.classList.toggle('right-handed',touchLayout==='right')}}
+function setStickFromPointer(e){const r=touchStickEl.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2,dx=e.clientX-cx,dy=e.clientY-cy,travel=r.width*.32;
+ const x=Math.max(-travel,Math.min(travel,dx)),y=Math.max(-travel,Math.min(travel,dy));stickKnobEl.style.left='calc(50% + '+x+'px)';stickKnobEl.style.top='calc(50% + '+y+'px)';
+ const threshold=r.width*.16;touchMoveBits=(dy<-threshold?1:0)|(dy>threshold?2:0)|(dx<-threshold?4:0)|(dx>threshold?8:0)}
+function clearTouchControls(){touchPointers.clear();touchMoveBits=0;stickPointer=null;if(stickKnobEl){stickKnobEl.style.left='50%';stickKnobEl.style.top='50%'}if(touchHudEl)touchHudEl.querySelectorAll('.pressed').forEach(b=>b.classList.remove('pressed'))}
+function touchButtonDown(e){e.preventDefault();e.stopPropagation();if(touchHudEl.hidden)return;const b=e.currentTarget,t=touchTeam();if(t<0)return;try{b.setPointerCapture(e.pointerId)}catch(err){}b.classList.add('pressed');let code=null;
+ if(b.hasAttribute('data-lob'))code=touchKeys(t).lob[0];else if(b.hasAttribute('data-shoot'))code=touchKeys(t).shoot;else if(b.hasAttribute('data-pass'))code=touchKeys(t).pass[Number(b.dataset.pass)];
+ touchPointers.set(e.pointerId,{button:b,lobCode:b.hasAttribute('data-lob')?code:null});if(code&&!b.hasAttribute('data-lob'))keysAct(code)}
+function touchButtonUp(e){const active=touchPointers.get(e.pointerId);if(!active)return;touchPointers.delete(e.pointerId);if(![...touchPointers.values()].some(v=>v.button===active.button))active.button.classList.remove('pressed')}
+document.querySelectorAll('#touchHud .touchBtn').forEach(b=>{b.addEventListener('pointerdown',touchButtonDown);b.addEventListener('pointerup',touchButtonUp);b.addEventListener('pointercancel',touchButtonUp);b.addEventListener('lostpointercapture',touchButtonUp)});
+touchStickEl.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();if(touchHudEl.hidden)return;stickPointer=e.pointerId;try{touchStickEl.setPointerCapture(e.pointerId)}catch(err){}setStickFromPointer(e)});
+touchStickEl.addEventListener('pointermove',e=>{if(e.pointerId===stickPointer){e.preventDefault();setStickFromPointer(e)}});
+function releaseStick(e){if(e.pointerId!==stickPointer)return;stickPointer=null;touchMoveBits=0;stickKnobEl.style.left='50%';stickKnobEl.style.top='50%'}
+touchStickEl.addEventListener('pointerup',releaseStick);touchStickEl.addEventListener('pointercancel',releaseStick);touchStickEl.addEventListener('lostpointercapture',releaseStick);
+document.getElementById('layoutToggle').addEventListener('click',()=>{touchLayout=touchLayout==='left'?'right':'left';try{localStorage.setItem('fotbalTouchLayout',touchLayout)}catch(e){}updateTouchHud()});
 const isGo=c=>c==='Enter'||c==='NumpadEnter'||c==='Space';
 addEventListener('keydown',e=>{
   if(!onlineDialog.hidden)return;
@@ -544,7 +600,8 @@ addEventListener('keydown',e=>{
  }
  if(state==='play'||state==='pen')keysAct(c)});
 addEventListener('keyup',e=>{K[e.code]=0});
-addEventListener('blur',()=>{for(const k in K)K[k]=0;if(state==='play'&&mode!==3)state='pause'});
+addEventListener('blur',()=>{for(const k in K)K[k]=0;clearTouchControls();if(state==='play'&&mode!==3)state='pause'});
+addEventListener('orientationchange',clearTouchControls);
 cv.addEventListener('pointerdown',e=>{window.focus();
  const r=cv.getBoundingClientRect(),s=Math.min(r.width/W,r.height/H),x=(e.clientX-r.left-(r.width-W*s)/2)/s,y=(e.clientY-r.top-(r.height-H*s)/2)/s;
  for(const b of btns)if(x>b.x&&x<b.x+b.w&&y>b.y&&y<b.y+b.h){b.fn();return}
