@@ -16,11 +16,11 @@ canvas{position:fixed;inset:0;display:block;width:100vw;height:100vh;height:100d
 #touchHud{position:fixed;inset:0;z-index:4;pointer-events:none;font:600 16px/1 system-ui,sans-serif;color:#fff;user-select:none;-webkit-user-select:none}
 .touchGroup{position:absolute;top:50%;display:flex;flex-direction:column;gap:clamp(5px,1.3vmin,10px);transform:translateY(-50%);pointer-events:auto}
 #passGroup{left:max(8px,env(safe-area-inset-left,0px))}
-#shotGroup{right:max(8px,env(safe-area-inset-right,0px));top:max(56px,calc(env(safe-area-inset-top,0px) + 48px));transform:none}
+#shotGroup{right:max(8px,env(safe-area-inset-right,0px));top:max(8px,env(safe-area-inset-top,0px));transform:none}
 .touchBtn{width:clamp(44px,12vmin,66px);height:clamp(44px,12vmin,66px);padding:0;border:2px solid #ffffffb8;border-radius:14px;background:#14231acc;color:#fff;font:700 clamp(18px,5vmin,26px)/1 system-ui,sans-serif;box-shadow:0 2px 8px #0008;touch-action:none;-webkit-tap-highlight-color:transparent}
 .touchBtn:active,.touchBtn.pressed{background:#22b14ce8;transform:scale(.96)}
 .touchBtn.action{width:clamp(58px,15vmin,84px);height:clamp(58px,15vmin,84px);font-size:clamp(14px,3.7vmin,20px)}
-#touchStick{position:absolute;right:max(12px,env(safe-area-inset-right,0px));bottom:max(12px,env(safe-area-inset-bottom,0px));width:clamp(76px,21vmin,126px);height:clamp(76px,21vmin,126px);border:2px solid #ffffff99;border-radius:50%;background:#14231a99;pointer-events:auto;touch-action:none}
+#touchStick{position:absolute;right:max(12px,env(safe-area-inset-right,0px));bottom:max(12px,env(safe-area-inset-bottom,0px));width:clamp(100px,27vmin,160px);height:clamp(100px,27vmin,160px);border:2px solid #ffffff99;border-radius:50%;background:#14231a99;pointer-events:auto;touch-action:none}
 #stickKnob{position:absolute;left:50%;top:50%;width:42%;height:42%;border:2px solid #fff;border-radius:50%;background:#ffffffa6;transform:translate(-50%,-50%);pointer-events:none}
 #layoutToggle{position:absolute;left:50%;bottom:max(7px,env(safe-area-inset-bottom,0px));transform:translateX(-50%);padding:7px 10px;border:1px solid #ffffffb8;border-radius:10px;background:#14231acc;color:#fff;font:600 12px system-ui,sans-serif;pointer-events:auto;touch-action:manipulation}
 #touchHud.right-handed #passGroup{left:auto;right:max(8px,env(safe-area-inset-right,0px))}
@@ -571,9 +571,9 @@ if(touchCapable)document.documentElement.dataset.touchEnabled='true';
 try{touchLayout=localStorage.getItem('fotbalTouchLayout')==='right'?'right':'left'}catch(e){}
 function updateTouchHud(){const active=touchCapable&&(state==='play'||state==='pen')&&(mode!==3||!!net.pick),mirrored=touchLayout==='right';if(!active&&touchHudEl&&!touchHudEl.hidden)clearTouchControls();if(touchHudEl){touchHudEl.hidden=!active;touchHudEl.classList.toggle('right-handed',mirrored)}
  if(touchStickEl){touchStickEl.style.left=mirrored?'max(12px, env(safe-area-inset-left, 0px))':'auto';touchStickEl.style.right=mirrored?'auto':'max(12px, env(safe-area-inset-right, 0px))'}}
-function setStickFromPointer(e){const r=touchStickEl.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2,dx=e.clientX-cx,dy=e.clientY-cy,travel=r.width*.32;
+function setStickFromPointer(e){const r=touchStickEl.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2,dx=e.clientX-cx,dy=e.clientY-cy,travel=r.width*.4;
  const x=Math.max(-travel,Math.min(travel,dx)),y=Math.max(-travel,Math.min(travel,dy));stickKnobEl.style.left='calc(50% + '+x+'px)';stickKnobEl.style.top='calc(50% + '+y+'px)';
- const threshold=r.width*.16;touchMoveBits=(dy<-threshold?1:0)|(dy>threshold?2:0)|(dx<-threshold?4:0)|(dx>threshold?8:0)}
+ const threshold=r.width*.27;touchMoveBits=(dy<-threshold?1:0)|(dy>threshold?2:0)|(dx<-threshold?4:0)|(dx>threshold?8:0)}
 function clearTouchControls(){touchPointers.clear();touchMoveBits=0;stickPointer=null;if(stickKnobEl){stickKnobEl.style.left='50%';stickKnobEl.style.top='50%'}if(touchHudEl)touchHudEl.querySelectorAll('.pressed').forEach(b=>b.classList.remove('pressed'))}
 function touchButtonDown(e){e.preventDefault();e.stopPropagation();if(touchHudEl.hidden)return;const b=e.currentTarget,t=touchTeam();if(t<0)return;try{b.setPointerCapture(e.pointerId)}catch(err){}b.classList.add('pressed');let code=null;
  if(b.hasAttribute('data-lob'))code=touchKeys(t).lob[0];else if(b.hasAttribute('data-shoot'))code=touchKeys(t).shoot;else if(b.hasAttribute('data-pass'))code=touchKeys(t).pass[Number(b.dataset.pass)];
