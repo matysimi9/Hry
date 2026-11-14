@@ -569,7 +569,8 @@ const touchHudEl=document.getElementById('touchHud'),touchStickEl=document.getEl
 const touchCapable=('ontouchstart'in window)||navigator.maxTouchPoints>0||!!(window.matchMedia&&matchMedia('(pointer: coarse)').matches);
 if(touchCapable)document.documentElement.dataset.touchEnabled='true';
 try{touchLayout=localStorage.getItem('fotbalTouchLayout')==='right'?'right':'left'}catch(e){}
-function updateTouchHud(){const active=touchCapable&&(state==='play'||state==='pen')&&(mode!==3||!!net.pick);if(!active&&touchHudEl&&!touchHudEl.hidden)clearTouchControls();if(touchHudEl){touchHudEl.hidden=!active;touchHudEl.classList.toggle('right-handed',touchLayout==='right')}}
+function updateTouchHud(){const active=touchCapable&&(state==='play'||state==='pen')&&(mode!==3||!!net.pick),mirrored=touchLayout==='right';if(!active&&touchHudEl&&!touchHudEl.hidden)clearTouchControls();if(touchHudEl){touchHudEl.hidden=!active;touchHudEl.classList.toggle('right-handed',mirrored)}
+ if(touchStickEl){touchStickEl.style.left=mirrored?'max(12px, env(safe-area-inset-left, 0px))':'auto';touchStickEl.style.right=mirrored?'auto':'max(12px, env(safe-area-inset-right, 0px))'}}
 function setStickFromPointer(e){const r=touchStickEl.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2,dx=e.clientX-cx,dy=e.clientY-cy,travel=r.width*.32;
  const x=Math.max(-travel,Math.min(travel,dx)),y=Math.max(-travel,Math.min(travel,dy));stickKnobEl.style.left='calc(50% + '+x+'px)';stickKnobEl.style.top='calc(50% + '+y+'px)';
  const threshold=r.width*.16;touchMoveBits=(dy<-threshold?1:0)|(dy>threshold?2:0)|(dx<-threshold?4:0)|(dx>threshold?8:0)}
