@@ -20,7 +20,7 @@ canvas{position:fixed;inset:0;display:block;width:100vw;height:100vh;height:100d
 .touchBtn{width:clamp(44px,12vmin,66px);height:clamp(44px,12vmin,66px);padding:0;border:2px solid #ffffffb8;border-radius:14px;background:#14231acc;color:#fff;font:700 clamp(18px,5vmin,26px)/1 system-ui,sans-serif;box-shadow:0 2px 8px #0008;touch-action:none;-webkit-tap-highlight-color:transparent}
 .touchBtn:active,.touchBtn.pressed{background:#22b14ce8;transform:scale(.96)}
 .touchBtn.action{width:clamp(58px,15vmin,84px);height:clamp(58px,15vmin,84px);font-size:clamp(14px,3.7vmin,20px)}
-#touchStick{position:absolute;right:max(12px,env(safe-area-inset-right,0px));bottom:max(12px,env(safe-area-inset-bottom,0px));width:clamp(112px,34vmin,220px);height:clamp(112px,34vmin,220px);border:2px solid #ffffff99;border-radius:50%;background:#14231a99;pointer-events:auto;touch-action:none}
+#touchStick{position:absolute;right:max(12px,env(safe-area-inset-right,0px));bottom:max(12px,env(safe-area-inset-bottom,0px));width:clamp(112px,34vmin,220px);height:clamp(112px,34vmin,220px);transform:translateY(-25%);border:2px solid #ffffff99;border-radius:50%;background:#14231a99;pointer-events:auto;touch-action:none}
 #stickKnob{position:absolute;left:50%;top:50%;width:42%;height:42%;border:2px solid #fff;border-radius:50%;background:#ffffffa6;transform:translate(-50%,-50%);pointer-events:none}
 #layoutToggle{position:absolute;left:50%;bottom:max(7px,env(safe-area-inset-bottom,0px));transform:translateX(-50%);padding:7px 10px;border:1px solid #ffffffb8;border-radius:10px;background:#14231acc;color:#fff;font:600 12px system-ui,sans-serif;pointer-events:auto;touch-action:manipulation}
 #touchHud.right-handed #passGroup{left:auto;right:max(8px,env(safe-area-inset-right,0px))}
